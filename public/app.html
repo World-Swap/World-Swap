@@ -1,0 +1,375 @@
+<!-- World Swap — functional marketplace app (talks to /api) -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World Swap — Marketplace</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<style>
+  :root{--ink:#0C1030;--ink-2:#111641;--panel:#161C4A;--panel-2:#1B2258;--line:rgba(255,255,255,.09);--line-2:rgba(255,255,255,.05);--gold:#F0B537;--teal:#3FD8C7;--violet:#8C7BFF;--text:#ECEEFB;--muted:#9096C4;--muted-2:#666CA2;--danger:#ff8c8c;--r:14px}
+  *{box-sizing:border-box}body{margin:0;background:radial-gradient(1100px 640px at 82% -6%,rgba(63,216,199,.08),transparent 55%),radial-gradient(950px 560px at 4% 2%,rgba(240,181,55,.08),transparent 52%),var(--ink);color:var(--text);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 22px}.mono{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+  button{font-family:inherit;cursor:pointer}input,textarea,select{font-family:inherit}
+  a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  nav{position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);background:linear-gradient(var(--ink),rgba(12,16,48,.72));border-bottom:1px solid var(--line-2)}
+  .nav-in{display:flex;align-items:center;gap:20px;height:62px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;white-space:nowrap;text-decoration:none;color:var(--text)}
+  .glyph{width:24px;height:24px}
+  .tabs{display:flex;gap:4px}.tab{background:none;border:0;color:var(--muted);font-size:14.5px;font-weight:500;padding:8px 13px;border-radius:9px;position:relative}
+  .tab:hover{color:var(--text)}.tab.active{color:var(--ink);background:var(--gold)}
+  .pip{position:absolute;top:2px;right:3px;min-width:15px;height:15px;padding:0 4px;border-radius:100px;background:var(--teal);color:var(--ink);font-size:10px;font-weight:700;display:grid;place-items:center;font-family:"IBM Plex Mono",monospace}
+  .nav-right{margin-left:auto;display:flex;gap:9px;align-items:center}
+  .tmode{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--gold);border:1px solid var(--line);padding:5px 10px;border-radius:100px}
+  .wallet{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--teal);background:var(--ink-2);border:1px solid var(--line);padding:7px 12px;border-radius:9px}
+  .connect-btn{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:#0b1220;background:var(--teal);border:none;padding:8px 14px;border-radius:9px;cursor:pointer;transition:opacity .15s}
+  .connect-btn:hover{opacity:.88}
+  .connect-btn.connected{background:var(--ink-2);color:var(--teal);border:1px solid var(--teal);cursor:default}
+  .txlinks{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .txlink{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted-2);text-decoration:none;border:1px solid var(--line);padding:3px 8px;border-radius:6px}
+  .txlink:hover{color:var(--teal);border-color:var(--teal)}
+  .contract-link{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted-2);text-decoration:none}
+  .contract-link:hover{color:var(--teal)}
+  .view{display:none;padding:30px 0 90px}.view.active{display:block}
+  .head{margin-bottom:20px}.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--teal);margin-bottom:7px}
+  h1{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:28px;letter-spacing:-.02em;margin:0 0 7px}.sub{color:var(--muted);margin:0;font-size:15px;max-width:64ch}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}
+  .seg{display:flex;background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+  .seg button{background:none;border:0;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 14px;border-radius:8px}.seg button.on{background:var(--gold);color:var(--ink)}
+  .filters select,.filters input{background:var(--ink-2);border:1px solid var(--line);color:var(--text);font-size:14px;padding:9px 12px;border-radius:10px;outline:none}.filters input{flex:1;min-width:180px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(256px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:19px;display:flex;flex-direction:column;transition:transform .15s,border-color .15s}
+  .card:hover{transform:translateY(-2px);border-color:rgba(240,181,55,.32)}
+  .pills{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  .pill{font-family:"IBM Plex Mono",monospace;font-size:10.5px;padding:4px 9px;border-radius:100px;border:1px solid var(--line);color:var(--muted)}
+  .pill.digital{color:var(--teal);border-color:rgba(63,216,199,.4)}.pill.physical{color:var(--gold);border-color:rgba(240,181,55,.4)}.pill.service{color:var(--violet);border-color:rgba(140,123,255,.4)}
+  .card h3{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:16px;letter-spacing:-.01em;margin:0 0 6px;line-height:1.22}
+  .card .desc{color:var(--muted);font-size:13.5px;margin:0 0 14px;flex:1;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .card .meta{font-size:12px;color:var(--muted-2);margin-bottom:12px}
+  .foot{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line-2);padding-top:14px}
+  .price{font-family:"IBM Plex Mono",monospace;font-size:17px;color:var(--gold);font-weight:500}.price small{color:var(--muted-2);font-size:11px}
+  .act{background:var(--gold);color:var(--ink);border:0;font-weight:600;font-size:13.5px;padding:9px 15px;border-radius:9px}.act.svc{background:var(--violet);color:#fff}
+  .empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:var(--r);padding:44px 20px;text-align:center;color:var(--muted)}
+  .form{max-width:620px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px}
+  .kindsel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
+  .kindsel button{background:var(--ink-2);border:1px solid var(--line);color:var(--muted);border-radius:12px;padding:13px 10px;text-align:left}.kindsel button.on{border-color:var(--gold);color:var(--text);background:var(--ink)}
+  .kindsel .kt{font-weight:600;font-size:13.5px;display:block;margin-bottom:3px}.kindsel .kd{font-size:11px;color:var(--muted-2)}
+  .f{margin-bottom:15px}.f label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}.f label span{color:var(--muted-2);font-weight:400}
+  .f input,.f textarea,.f select{width:100%;background:var(--ink-2);border:1px solid var(--line);color:var(--text);font-size:15px;padding:11px 13px;border-radius:10px;outline:none}
+  .f input:focus,.f textarea:focus,.f select:focus{border-color:var(--gold)}.f textarea{resize:vertical;min-height:72px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .split{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);background:var(--ink-2);border:1px solid var(--line-2);border-radius:9px;padding:10px 13px}
+  .split b{color:var(--gold);font-weight:500}.split .net{color:var(--teal)}
+  .submit{background:var(--gold);color:var(--ink);border:0;font-weight:600;font-size:15px;padding:13px 22px;border-radius:11px;width:100%;margin-top:16px}
+  .ferr{color:var(--danger);font-size:13px;margin-top:10px;min-height:18px}
+  .escrow-summary{display:flex;align-items:center;gap:14px;background:linear-gradient(90deg,rgba(63,216,199,.1),transparent);border:1px solid var(--line);border-radius:12px;padding:15px 18px;margin-bottom:20px}
+  .escrow-summary .big{font-family:"IBM Plex Mono",monospace;font-size:19px;color:var(--teal);font-weight:500}.escrow-summary .lbl{font-size:12.5px;color:var(--muted)}
+  .order{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:17px 20px;margin-bottom:13px}
+  .order-top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}
+  .order-top h3{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:15.5px;margin:0 0 5px;letter-spacing:-.01em}
+  .order-top .om{font-size:12px;color:var(--muted-2);font-family:"IBM Plex Mono",monospace}
+  .state{font-family:"IBM Plex Mono",monospace;font-size:11.5px;padding:5px 11px;border-radius:100px;white-space:nowrap}
+  .state.funded{color:var(--gold);background:rgba(240,181,55,.12)}.state.shipped,.state.in_progress,.state.submitted{color:var(--teal);background:rgba(63,216,199,.12)}
+  .state.released{color:#7ee787;background:rgba(126,231,135,.12)}.state.disputed{color:var(--danger);background:rgba(255,140,140,.12)}.state.refunded{color:var(--muted);background:var(--ink)}
+  .held{display:inline-flex;align-items:center;gap:7px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--teal);background:var(--ink);border:1px solid var(--line);border-radius:9px;padding:7px 12px;margin:12px 0}
+  .oa{border:1px solid var(--line);background:var(--ink-2);color:var(--text);font-size:12.5px;font-weight:500;padding:8px 14px;border-radius:9px;margin:4px 6px 0 0}
+  .oa:hover{border-color:var(--teal)}.oa.primary{background:var(--teal);color:var(--ink);border-color:var(--teal);font-weight:600}.oa.warn{color:var(--danger);border-color:rgba(255,140,140,.35)}
+  .role{font-size:10px;font-family:"IBM Plex Mono",monospace;color:var(--muted-2);margin-right:3px}
+  .overlay{position:fixed;inset:0;background:rgba(6,8,26,.72);backdrop-filter:blur(3px);z-index:60;display:none;align-items:center;justify-content:center;padding:20px}.overlay.show{display:flex}
+  .modal{background:linear-gradient(180deg,var(--panel-2),var(--ink-2));border:1px solid var(--line);border-radius:18px;width:100%;max-width:430px;padding:24px;max-height:90vh;overflow:auto}
+  .modal-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:4px}.modal-head h3{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:18px;margin:0}
+  .close{background:none;border:0;color:var(--muted);font-size:22px}.close:hover{color:var(--text)}
+  .m-item{color:var(--muted);font-size:13.5px;margin:2px 0 16px}
+  .contract{background:var(--ink);border:1px solid var(--line);border-radius:12px;padding:15px;margin-bottom:14px}
+  .crow{display:flex;justify-content:space-between;font-size:13px;padding:5px 0}.crow .k{color:var(--muted)}.crow .v{font-family:"IBM Plex Mono",monospace}.crow .v.fee{color:var(--gold)}.crow .v.net{color:var(--teal)}
+  .divide{height:1px;background:var(--line-2);margin:7px 0}
+  .escrow-note{display:flex;gap:9px;font-size:12.5px;color:var(--muted);background:rgba(63,216,199,.06);border:1px solid var(--line-2);border-radius:10px;padding:11px 13px;margin-bottom:14px}
+  .m-btn{width:100%;border:0;border-radius:11px;font-weight:600;font-size:15px;padding:13px}.m-btn.primary{background:var(--gold);color:var(--ink)}.m-btn.ghost{background:var(--ink);color:var(--text);border:1px solid var(--line);margin-top:9px}
+  .spinner{width:40px;height:40px;margin:10px auto 14px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--gold);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+  .delivered{text-align:center}.check{width:48px;height:48px;margin:2px auto 12px;border-radius:50%;background:rgba(63,216,199,.14);display:grid;place-items:center;border:1px solid var(--teal)}
+  .delivered h4{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:18px;margin:0 0 6px}.delivered .p{color:var(--muted);font-size:13.5px;margin:0 0 14px}
+  .goods{background:var(--ink);border:1px solid var(--teal);border-radius:12px;padding:15px;text-align:left;margin-bottom:12px}.goods .glabel{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--teal);text-transform:uppercase;margin-bottom:9px}
+  .goods .secret{font-family:"IBM Plex Mono",monospace;font-size:13.5px;word-break:break-all;background:var(--ink-2);border:1px solid var(--line-2);border-radius:8px;padding:10px}
+  .copy{margin-top:9px;background:var(--ink-2);border:1px solid var(--line);color:var(--text);font-size:12.5px;padding:7px 13px;border-radius:8px}
+  .dl{display:inline-flex;gap:8px;background:var(--teal);color:var(--ink);text-decoration:none;font-weight:600;font-size:14px;padding:11px 18px;border-radius:10px}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--line);color:var(--text);font-size:13.5px;padding:11px 18px;border-radius:10px;z-index:80;opacity:0;transition:opacity .2s}.toast.show{opacity:1}
+  @media(max-width:600px){.row2,.kindsel{grid-template-columns:1fr}h1{font-size:23px}.filters input{min-width:100%}}
+</style>
+
+<nav><div class="wrap nav-in">
+  <a class="brand" href="/"><svg class="glyph" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14.5" stroke="#F0B537" stroke-width="1.5"/><path d="M9 12h11l-3-3M23 20H12l3 3" stroke="#3FD8C7" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>World&nbsp;Swap</a>
+  <div class="tabs">
+    <button class="tab active" data-view="browse">Browse</button>
+    <button class="tab" data-view="sell">Sell / Offer</button>
+    <button class="tab" data-view="orders">Orders <span class="pip" id="pip" style="display:none">0</span></button>
+  </div>
+  <div class="nav-right"><span class="tmode" id="tmode" style="display:none">TEST MODE</span><button class="connect-btn" id="connectBtn" style="display:none">Connect Wallet</button><span class="wallet" id="myWallet">wallet: —</span></div>
+</div></nav>
+
+<div class="view active" id="v-browse"><div class="wrap">
+  <div class="head"><div class="eyebrow">Marketplace</div><h1>Buy goods. Hire people. Pay with crypto.</h1><p class="sub">Digital items deliver instantly. Physical goods and hired work are escrow-protected until you confirm delivery.</p></div>
+  <div class="filters">
+    <div class="seg" id="kindSeg"><button data-k="all" class="on">All</button><button data-k="goods">Goods</button><button data-k="service">Services</button></div>
+    <select id="catFilter"><option value="">All categories</option></select>
+    <input id="search" type="search" placeholder="Search…">
+  </div>
+  <div class="grid" id="grid"></div>
+</div></div>
+
+<div class="view" id="v-sell"><div class="wrap">
+  <div class="head"><div class="eyebrow">List something</div><h1>Sell an item or offer a service.</h1><p class="sub">Digital delivers instantly; physical and services run through escrow.</p></div>
+  <div class="form">
+    <div class="kindsel" id="kindSel">
+      <button data-kind="digital" class="on"><span class="kt">Digital good</span><span class="kd">Key, file, link — instant</span></button>
+      <button data-kind="physical"><span class="kt">Physical good</span><span class="kd">Ships — escrow</span></button>
+      <button data-kind="service"><span class="kt">Service / hire</span><span class="kd">Work — escrow</span></button>
+    </div>
+    <div class="f"><label for="title">Title</label><input id="title" maxlength="90"></div>
+    <div class="f"><label for="desc">Description</label><textarea id="desc" maxlength="500"></textarea></div>
+    <div class="row2"><div class="f"><label for="cat">Category</label><select id="cat"></select></div><div class="f"><label for="price">Price <span>(USDC)</span></label><input id="price" type="number" min="0.01" step="0.01"></div></div>
+    <div class="row2"><div class="f"><label for="handle">Name / handle</label><input id="handle" maxlength="40"></div><div class="f"><label for="seller">Wallet <span>(gets 99.5%)</span></label><input id="seller" class="mono" placeholder="0x…" spellcheck="false"></div></div>
+    <div class="f" id="daysWrap" style="display:none"><label for="days">Est. delivery <span>(days)</span></label><input id="days" type="number" min="1" step="1"></div>
+    <div class="f" id="digWrap">
+      <label>The digital good <span>— sealed until purchase</span></label>
+      <div class="row2" style="margin-bottom:10px"><select id="dtype"><option value="key">License key / code</option><option value="link">Download link</option><option value="text">Text / secret</option></select><span></span></div>
+      <input id="payload" class="mono" placeholder="Paste the key, link, or secret…" spellcheck="false">
+    </div>
+    <div class="split"><span>Buyer pays <b id="spPay">0.00</b></span><span>Fee 0.5% <b id="spFee">0.00</b></span><span>You receive <b class="net" id="spNet">0.00</b></span></div>
+    <button class="submit" id="listBtn">Publish listing</button>
+    <div class="ferr" id="ferr"></div>
+  </div>
+</div></div>
+
+<div class="view" id="v-orders"><div class="wrap">
+  <div class="head"><div class="eyebrow">Escrow &amp; delivery</div><h1>Your orders.</h1><p class="sub">Funds sit in escrow until the job's done. In this trial you can act as buyer and seller to walk the full flow.</p><div id="contractLink" style="margin-top:8px"></div></div>
+  <div class="escrow-summary" id="escrowSummary" style="display:none"><div><div class="big" id="heldTotal">0.00 USDC</div><div class="lbl">locked in escrow — released only when you confirm</div></div></div>
+  <div id="ordersList"></div>
+</div></div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const API=''; // same-origin
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=n=>Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const short=a=>a&&a.length>12?a.slice(0,6)+'…'+a.slice(-4):a;
+const hex=n=>Array.from({length:n},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+const isAddr=a=>/^0x[a-fA-F0-9]{40}$/.test(a||'');
+const FEE=0.005;
+const kindLabel={digital:'Digital',physical:'Physical',service:'Service'};
+const CATS={goods:['Electronics','Collectibles','Home & Garden','Fashion','Toys & Hobbies','Digital'],service:['Web Development','Design','Writing','Marketing','Video & Animation','Consulting']};
+const dtypeLabel={key:'License key',link:'Download link',text:'Secret'};
+
+let me=localStorage.getItem('ws_wallet'); if(!isAddr(me)){me='0x'+hex(40);localStorage.setItem('ws_wallet',me);}
+$('#myWallet').textContent='wallet: '+short(me);
+let TEST=true;
+let CHAIN={};          // {escrow, token, chain_id} from /api/config when not in test mode
+
+// ---- on-chain (Base Sepolia) ----
+const BASE_SEPOLIA={chainId:'0x14a34',chainName:'Base Sepolia',nativeCurrency:{name:'Ether',symbol:'ETH',decimals:18},rpcUrls:['https://sepolia.base.org'],blockExplorerUrls:['https://sepolia.basescan.org']};
+const ERC20_ABI=['function approve(address spender,uint256 amount) returns (bool)','function allowance(address owner,address spender) view returns (uint256)','function balanceOf(address) view returns (uint256)','function decimals() view returns (uint8)'];
+const SWAP_ABI=['function fundEscrow(bytes32 orderId,address seller,uint256 amount)','function settleInstant(bytes32 orderId,address seller,uint256 amount)','function release(bytes32 orderId)','function orders(bytes32) view returns (address buyer,address seller,uint256 amount,uint8 state)'];
+const txErr=e=>e?.shortMessage||e?.reason||(e?.code==='ACTION_REJECTED'?'You rejected the request in your wallet.':e?.message)||'transaction failed';
+
+async function ensureWallet(){
+  if(!window.ethereum) throw new Error('No wallet found. Install the Coinbase Wallet extension, then reload.');
+  const eth=window.ethereum;
+  await eth.request({method:'eth_requestAccounts'});
+  const cid=await eth.request({method:'eth_chainId'});
+  if(cid!=='0x14a34'){
+    try{ await eth.request({method:'wallet_switchEthereumChain',params:[{chainId:'0x14a34'}]}); }
+    catch(e){ if(e.code===4902){ await eth.request({method:'wallet_addEthereumChain',params:[BASE_SEPOLIA]}); } else throw e; }
+  }
+  const provider=new ethers.BrowserProvider(eth);
+  const signer=await provider.getSigner();
+  me=await signer.getAddress(); localStorage.setItem('ws_wallet',me); $('#myWallet').textContent='wallet: '+short(me);
+  return signer;
+}
+const spin=msg=>`<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">${esc(msg)}</div></div>`;
+
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800);}
+async function api(path,opts){const r=await fetch(API+path,{headers:{'Content-Type':'application/json'},...opts});if(!r.ok){let e='request failed';try{e=(await r.json()).error||e;}catch{}throw new Error(e);}return r.status===204?null:r.json();}
+
+// ---- browse ----
+let filter={kind:'all',cat:'',q:''};
+function populateCat(){const s=$('#catFilter');const c=[...new Set([...CATS.goods,...CATS.service])];s.innerHTML='<option value="">All categories</option>'+c.map(x=>`<option>${esc(x)}</option>`).join('');}
+async function renderBrowse(){
+  const grid=$('#grid');const p=new URLSearchParams();
+  if(filter.kind!=='all')p.set('kind',filter.kind);if(filter.cat)p.set('category',filter.cat);if(filter.q)p.set('q',filter.q);
+  let data;try{data=await api('/api/listings?'+p.toString());}catch(e){grid.innerHTML=`<div class="empty">Couldn't load listings: ${esc(e.message)}</div>`;return;}
+  const items=data.listings||[];
+  if(!items.length){grid.innerHTML='<div class="empty">No listings match. Try <b>Sell / Offer</b>.</div>';return;}
+  grid.innerHTML=items.map(l=>{const svc=l.kind==='service';const meta=l.kind==='digital'?'Instant delivery':(svc?`~${l.delivery_days||'—'}d turnaround · escrow`:`Ships ~${l.delivery_days||'—'}d · escrow`);
+    return `<div class="card"><div class="pills"><span class="pill ${l.kind}">${kindLabel[l.kind]}</span><span class="pill">${esc(l.category)}</span></div>
+      <h3>${esc(l.title)}</h3><p class="desc">${esc(l.description)}</p><div class="meta">${esc(meta)} · by ${esc(l.handle||short(l.seller_wallet))}</div>
+      <div class="foot"><div class="price">${fmt(l.price_usdc)} <small>USDC</small></div><button class="act ${svc?'svc':''}" data-buy="${esc(l.id)}">${svc?'Hire':'Buy'}</button></div></div>`;}).join('');
+}
+$('#kindSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;filter.kind=b.dataset.k;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderBrowse();});
+$('#catFilter').addEventListener('change',e=>{filter.cat=e.target.value;renderBrowse();});
+$('#search').addEventListener('input',e=>{filter.q=e.target.value;renderBrowse();});
+
+// ---- buy/hire ----
+const overlay=$('#overlay'),modal=$('#modal');
+function closeModal(){overlay.classList.remove('show');modal.innerHTML='';}
+overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+async function openBuy(id){
+  let l;try{l=(await api('/api/listings/'+id)).listing;}catch(e){return toast(e.message);}
+  const fee=l.price_usdc*FEE,net=l.price_usdc-fee,svc=l.kind==='service',instant=l.kind==='digital';
+  modal.innerHTML=`<div class="modal-head"><div><h3>${instant?'Complete purchase':(svc?'Hire & fund escrow':'Buy & fund escrow')}</h3><p class="m-item">${esc(l.title)}</p></div><button class="close">×</button></div>
+    <div class="contract"><div class="crow"><span class="k">You pay</span><span class="v">${fmt(l.price_usdc)} USDC</span></div>
+    <div class="crow"><span class="k">→ ${esc(l.handle||short(l.seller_wallet))}</span><span class="v net">${fmt(net)}</span></div>
+    <div class="crow"><span class="k">→ World Swap fee (0.5%)</span><span class="v fee">${fmt(fee)}</span></div><div class="divide"></div>
+    <div class="crow"><span class="k">Release</span><span class="v net">${instant?'instant on payment':(svc?'when you approve':'when you confirm delivery')}</span></div></div>
+    ${instant?'':`<div class="escrow-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="#3FD8C7" stroke-width="1.6"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#3FD8C7" stroke-width="1.6"/></svg><span>Your ${fmt(l.price_usdc)} USDC locks in escrow — not World Swap's wallet — until you release it.</span></div>`}
+    <div id="stage"><button class="m-btn primary" id="go">${TEST?'Pay (test)':'Pay'} · ${fmt(l.price_usdc)} USDC</button></div>`;
+  modal.querySelector('.close').onclick=closeModal;overlay.classList.add('show');
+  modal.querySelector('#go').onclick=()=>pay(l);
+}
+async function pay(l){
+  if(!TEST) return payOnchain(l);
+  const stage=$('#stage');stage.innerHTML='<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Settling…</div></div>';
+  try{
+    const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id,buyer_wallet:me})});
+    const r=await api('/api/orders/'+ord.order_id+'/pay',{method:'POST',body:JSON.stringify({})});
+    if(l.kind==='digital'&&r.state==='released'){await showDelivery(ord.order_id,l);}
+    else{stage.innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#3FD8C7" stroke-width="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" stroke="#3FD8C7" stroke-width="1.8"/></svg></div><h4>${fmt(l.price_usdc)} USDC in escrow</h4><p class="p">${l.kind==='service'?'Release the funds once you approve the work.':'Release once you confirm the item arrived.'}</p><button class="m-btn primary" id="toO">Track in Orders</button></div>`;modal.querySelector('#toO').onclick=()=>{closeModal();switchView('orders');};}
+    refreshPip();
+  }catch(e){stage.innerHTML=`<div style="color:var(--danger);text-align:center;padding:10px">${esc(e.message)}</div>`;}
+}
+async function payOnchain(l){
+  const stage=$('#stage');stage.innerHTML=spin('Connecting wallet…');
+  try{
+    const signer=await ensureWallet();
+    const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id,buyer_wallet:me})});
+    if(!ord.token||!ord.escrow) throw new Error('On-chain addresses not configured on the server.');
+    const amount=ethers.parseUnits(String(l.price_usdc),6);           // USDC has 6 decimals
+    const usdc=new ethers.Contract(ord.token,ERC20_ABI,signer);
+    const have=await usdc.balanceOf(me);
+    if(have<amount) throw new Error('Not enough test USDC in your wallet. Grab some from the faucet first.');
+    stage.innerHTML=spin('Approve USDC in your wallet…');
+    const allow=await usdc.allowance(me,ord.escrow);
+    if(allow<amount){ const ax=await usdc.approve(ord.escrow,amount); await ax.wait(); }
+    const swap=new ethers.Contract(ord.escrow,SWAP_ABI,signer);
+    stage.innerHTML=spin(ord.mode==='instant'?'Confirm payment in your wallet…':'Locking funds in escrow…');
+    const tx = ord.mode==='instant'
+      ? await swap.settleInstant(ord.onchain_order_id,ord.seller,amount)
+      : await swap.fundEscrow(ord.onchain_order_id,ord.seller,amount);
+    stage.innerHTML=spin('Waiting for on-chain confirmation…');
+    const rc=await tx.wait();
+    await api('/api/orders/'+ord.order_id+'/verify',{method:'POST',body:JSON.stringify({tx_hash:rc.hash})});
+    if(l.kind==='digital'){ await showDelivery(ord.order_id,l); }
+    else{ stage.innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#3FD8C7" stroke-width="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" stroke="#3FD8C7" stroke-width="1.8"/></svg></div><h4>${fmt(l.price_usdc)} USDC in escrow</h4><p class="p">Locked in the contract on-chain. Release it from Orders once delivered.</p><a class="mono" style="font-size:11px;color:var(--muted-2)" href="https://sepolia.basescan.org/tx/${rc.hash}" target="_blank">view tx ↗</a><br><button class="m-btn primary" id="toO" style="margin-top:12px">Track in Orders</button></div>`;modal.querySelector('#toO').onclick=()=>{closeModal();switchView('orders');}; }
+    refreshPip();
+  }catch(e){stage.innerHTML=`<div style="color:var(--danger);text-align:center;padding:10px">${esc(txErr(e))}</div>`;}
+}
+async function releaseOnchain(o){
+  const signer=await ensureWallet();
+  const swap=new ethers.Contract(CHAIN.escrow||o.escrow,SWAP_ABI,signer);
+  toast('Confirm the release in your wallet…');
+  const tx=await swap.release(o.onchain_order_id);
+  await tx.wait();
+  await api('/api/orders/'+o.id+'/verify',{method:'POST',body:JSON.stringify({tx_hash:tx.hash})});
+}
+async function showDelivery(orderId,l){
+  let d=null;try{d=(await api(`/api/orders/${orderId}/deliverable?wallet=${me}`)).delivery;}catch(e){}
+  let goods='';
+  if(d&&d.type==='file'){goods=`<div class="goods"><div class="glabel">Your file</div><a class="dl" href="${esc(d.url)}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Download</a></div>`;}
+  else if(d){goods=`<div class="goods"><div class="glabel">${esc(dtypeLabel[d.type]||'Item')}</div><div class="secret" id="sv">${esc(d.value)}</div><button class="copy" id="cp">Copy</button></div>`;}
+  $('#stage').innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#3FD8C7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h4>Transferred to you</h4><p class="p">Payment confirmed. Delivered instantly.</p>${goods}<button class="m-btn ghost" id="dn">Done</button></div>`;
+  const dn=$('#stage').querySelector('#dn');if(dn)dn.onclick=closeModal;
+  const cp=$('#stage').querySelector('#cp');if(cp)cp.onclick=()=>{navigator.clipboard?.writeText(d.value);cp.textContent='Copied ✓';};
+}
+
+// ---- orders ----
+const FLOW={physical:[['funded','Funded'],['shipped','Shipped'],['released','Received']],service:[['funded','Funded'],['in_progress','In progress'],['submitted','Delivered'],['released','Approved']]};
+function actions(o){
+  if(o.state==='released')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:#7ee787">✓ Released — seller received ${fmt(o.amount_usdc-o.amount_usdc*FEE)} USDC</span></div>`;
+  if(o.state==='refunded')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:var(--muted)">↩ Refunded to buyer</span></div>`;
+  let b=[];
+  if(o.state==='disputed'){b.push(`<span class="role">arbiter:</span>`);b.push(`<button class="oa primary" data-act="resolve" data-to="1" data-id="${o.id}">Release to seller</button>`);b.push(`<button class="oa" data-act="resolve" data-to="0" data-id="${o.id}">Refund buyer</button>`);return `<div style="margin-top:6px">${b.join('')}</div>`;}
+  if(o.kind==='physical'){if(o.state==='funded')b.push(`<button class="oa" data-act="ship" data-id="${o.id}"><span class="role">seller</span>Mark shipped</button>`);if(o.state==='shipped')b.push(`<button class="oa primary" data-act="release" data-id="${o.id}"><span class="role">buyer</span>Confirm delivery & release</button>`);}
+  if(o.kind==='service'){if(o.state==='funded')b.push(`<button class="oa" data-act="start" data-id="${o.id}"><span class="role">seller</span>Start work</button>`);if(o.state==='funded'||o.state==='in_progress')b.push(`<button class="oa" data-act="submit" data-id="${o.id}"><span class="role">seller</span>Submit deliverable</button>`);if(o.state==='submitted'){b.push(`<button class="oa primary" data-act="release" data-id="${o.id}"><span class="role">buyer</span>Approve & release</button>`);b.push(`<button class="oa" data-act="changes" data-id="${o.id}"><span class="role">buyer</span>Request changes</button>`);}}
+  b.push(`<button class="oa warn" data-act="dispute" data-id="${o.id}">Dispute</button>`);
+  return `<div style="margin-top:6px">${b.join('')}</div>`;
+}
+function steps(o){const flow=FLOW[o.kind];if(!flow)return'';const order=flow.map(f=>f[0]);let idx=order.indexOf(o.state);if(o.state==='released')idx=order.length-1;if(o.state==='disputed'||o.state==='refunded')idx=-1;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;font-family:'IBM Plex Mono',monospace;font-size:11px">${flow.map((f,i)=>{const c=(i<idx||o.state==='released')?'#3FD8C7':(i===idx?'#F0B537':'#666CA2');return `<span style="color:${c}">${i>0?'→ ':''}${esc(f[1])}</span>`;}).join('')}</div>`;}
+async function renderOrders(){
+  const list=$('#ordersList');const cl=$('#contractLink');if(cl){cl.innerHTML=(!TEST&&CHAIN.escrow)?`<a class="contract-link" href="https://sepolia.basescan.org/address/${esc(CHAIN.escrow)}" target="_blank">escrow contract: ${short(CHAIN.escrow)} ↗</a>`:'';}
+  let data;try{data=await api('/api/orders?wallet='+me);}catch(e){list.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return;}
+  const orders=data.orders||[];const activeStates=['funded','shipped','in_progress','submitted','disputed'];
+  const held=orders.filter(o=>activeStates.includes(o.state)).reduce((s,o)=>s+Number(o.amount_usdc),0);
+  $('#escrowSummary').style.display=held>0?'flex':'none';$('#heldTotal').textContent=fmt(held)+' USDC';
+  if(!orders.length){list.innerHTML='<div class="empty">No orders yet. Buy or hire from <b>Browse</b>.</div>';return;}
+  list.innerHTML=orders.map(o=>{const active=activeStates.includes(o.state);const instant=o.kind==='digital';
+    let extra='';if(o.tracking)extra+=`<div class="om" style="margin-top:5px">tracking: ${esc(o.tracking)}</div>`;if(o.deliverable_ref)extra+=`<div class="om" style="margin-top:5px">delivered: ${esc(o.deliverable_ref)}</div>`;
+    let chainlinks='';if(!TEST){const L=[];if(o.tx_fund)L.push(`<a href="https://sepolia.basescan.org/tx/${esc(o.tx_fund)}" target="_blank" class="txlink">fund tx ↗</a>`);if(o.tx_release)L.push(`<a href="https://sepolia.basescan.org/tx/${esc(o.tx_release)}" target="_blank" class="txlink">release tx ↗</a>`);if(L.length)chainlinks=`<div class="txlinks">${L.join('')}</div>`;}
+    return `<div class="order"><div class="order-top"><div><h3>${esc(o.title)}</h3><div class="om">${kindLabel[o.kind]} · ${fmt(o.amount_usdc)} USDC · ${esc(o.handle||short(o.seller_wallet))}</div>${extra}</div><span class="state ${o.state}">${o.state.replace('_',' ')}</span></div>
+      ${active?`<div class="held"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="#3FD8C7" stroke-width="1.7"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#3FD8C7" stroke-width="1.7"/></svg>${fmt(o.amount_usdc)} USDC held in escrow</div>`:''}
+      ${instant?(o.state==='released'?`<button class="oa" data-open="${o.id}">Open goods</button>`:''):steps(o)+actions(o)}${chainlinks}</div>`;}).join('');
+}
+async function refreshPip(){try{const d=await api('/api/orders?wallet='+me);const n=(d.orders||[]).filter(o=>['funded','shipped','in_progress','submitted','disputed'].includes(o.state)).length;const p=$('#pip');p.style.display=n?'grid':'none';p.textContent=n;}catch{}}
+
+async function doAct(id,act,el){
+  try{
+    if(act==='ship'){const t=prompt('Tracking (optional):','1Z-DEMO-'+hex(6).toUpperCase());await api('/api/orders/'+id+'/ship',{method:'POST',body:JSON.stringify({tracking:t})});}
+    else if(act==='start'){await api('/api/orders/'+id+'/start',{method:'POST',body:JSON.stringify({})});}
+    else if(act==='submit'){const d=prompt('Link/note for the deliverable:','https://drive.example/'+hex(5));await api('/api/orders/'+id+'/submit',{method:'POST',body:JSON.stringify({deliverable:d})});}
+    else if(act==='changes'){await api('/api/orders/'+id+'/changes',{method:'POST',body:JSON.stringify({})});}
+    else if(act==='release'){ if(TEST){await api('/api/orders/'+id+'/release',{method:'POST',body:JSON.stringify({})});toast('Funds released');} else { const o=(await api('/api/orders?wallet='+me)).orders.find(x=>x.id===id); await releaseOnchain(o); toast('Released on-chain'); } }
+    else if(act==='dispute'){if(!confirm('Open a dispute? Funds stay locked until resolved.'))return;await api('/api/orders/'+id+'/dispute',{method:'POST',body:JSON.stringify({opened_by:me})});}
+    else if(act==='resolve'){await api('/api/orders/'+id+'/resolve',{method:'POST',body:JSON.stringify({release_to_seller:el.dataset.to==='1'})});}
+    renderOrders();refreshPip();
+  }catch(e){toast(e.message);}
+}
+
+document.addEventListener('click',e=>{
+  const buy=e.target.closest('[data-buy]');if(buy)return openBuy(buy.dataset.buy);
+  const open=e.target.closest('[data-open]');if(open)return openInstantAgain(open.dataset.open);
+  const a=e.target.closest('[data-act]');if(a)return doAct(a.dataset.id,a.dataset.act,a);
+});
+async function openInstantAgain(orderId){
+  overlay.classList.add('show');modal.innerHTML=`<div class="modal-head"><div></div><button class="close">×</button></div><div id="stage"></div>`;
+  modal.querySelector('.close').onclick=closeModal;
+  try{const d=(await api(`/api/orders/${orderId}/deliverable?wallet=${me}`)).delivery;await showDeliveryInline(d);}catch(e){$('#stage').innerHTML=`<div style="color:var(--danger);padding:10px">${esc(e.message)}</div>`;}
+}
+async function showDeliveryInline(d){
+  let goods='';if(d&&d.type==='file'){goods=`<div class="goods"><div class="glabel">Your file</div><a class="dl" href="${esc(d.url)}">Download</a></div>`;}
+  else if(d){goods=`<div class="goods"><div class="glabel">${esc(dtypeLabel[d.type]||'Item')}</div><div class="secret">${esc(d.value)}</div><button class="copy" id="cp2">Copy</button></div>`;}
+  $('#stage').innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#3FD8C7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h4>Your purchase</h4>${goods}<button class="m-btn ghost" id="dn2">Done</button></div>`;
+  const dn=$('#dn2');if(dn)dn.onclick=closeModal;const cp=$('#cp2');if(cp&&d)cp.onclick=()=>{navigator.clipboard?.writeText(d.value);cp.textContent='Copied ✓';};
+}
+
+// ---- sell ----
+let sellKind='digital';
+function catsFor(k){const arr=k==='service'?CATS.service:CATS.goods;$('#cat').innerHTML=arr.map(c=>`<option>${esc(c)}</option>`).join('');if(k==='digital')$('#cat').value='Digital';}
+function syncSell(){$('#digWrap').style.display=sellKind==='digital'?'block':'none';$('#daysWrap').style.display=sellKind==='digital'?'none':'block';catsFor(sellKind);}
+$('#kindSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;sellKind=b.dataset.kind;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));syncSell();});
+function updSplit(){const p=parseFloat($('#price').value)||0,f=p*FEE;$('#spPay').textContent=fmt(p);$('#spFee').textContent=fmt(f);$('#spNet').textContent=fmt(p-f);}
+$('#price').addEventListener('input',updSplit);
+$('#listBtn').addEventListener('click',async()=>{
+  const err=$('#ferr');err.textContent='';
+  const title=$('#title').value.trim(),description=$('#desc').value.trim(),category=$('#cat').value,price_usdc=parseFloat($('#price').value),handle=$('#handle').value.trim(),seller_wallet=$('#seller').value.trim();
+  if(!title)return err.textContent='Add a title.';if(!description)return err.textContent='Add a description.';
+  if(!(price_usdc>0))return err.textContent='Price must be > 0.';if(!handle)return err.textContent='Add a name/handle.';
+  if(!isAddr(seller_wallet))return err.textContent='Valid wallet (0x + 40 hex) required.';
+  const body={kind:sellKind,category,title,description,price_usdc,handle,seller_wallet};
+  if(sellKind==='digital'){const v=$('#payload').value.trim();if(!v)return err.textContent='Add the key/link/secret.';body.asset={asset_type:$('#dtype').value,value:v};}
+  else{const d=parseInt($('#days').value,10);body.delivery_days=d>0?d:7;}
+  try{await api('/api/listings',{method:'POST',body:JSON.stringify(body)});}catch(e){return err.textContent=e.message;}
+  ['title','desc','price','handle','seller','payload','days'].forEach(id=>{const el=$('#'+id);if(el)el.value='';});updSplit();
+  filter={kind:'all',cat:'',q:''};$('#search').value='';$('#catFilter').value='';[...$('#kindSeg').children].forEach(x=>x.classList.toggle('on',x.dataset.k==='all'));
+  switchView('browse');toast('Listing published');
+});
+
+// ---- views ----
+function switchView(v){document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));$('#v-'+v).classList.add('active');if(v==='browse')renderBrowse();if(v==='orders')renderOrders();window.scrollTo(0,0);}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchView(t.dataset.view)));
+
+(async()=>{try{const c=await api('/api/config');TEST=c.test_mode;CHAIN={escrow:c.escrow,token:c.token,chain_id:c.chain_id};const tm=$('#tmode');tm.style.display='inline-block';if(!TEST){tm.textContent='BASE SEPOLIA';tm.style.color='#3FD8C7';const cb=$('#connectBtn');cb.style.display='inline-block';cb.onclick=async()=>{cb.textContent='Connecting…';try{await ensureWallet();cb.textContent='Connected';cb.classList.add('connected');}catch(e){cb.textContent='Connect Wallet';toast(txErr(e));}};}}catch{}populateCat();catsFor('digital');syncSell();updSplit();renderBrowse();refreshPip();})();
+})();
+</script>
