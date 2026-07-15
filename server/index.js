@@ -25,6 +25,7 @@ app.get('/api/config', (_req, res) => res.json({
   chain_id: 84532,
   escrow: config.chain.escrow || null,
   token: config.chain.usdc || null,
+  arbiter: config.chain.arbiter || null,
 }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

@@ -333,18 +333,27 @@ async function openBuy(id){
     <div id="stage"><button class="m-btn primary" id="go">${TEST?'Pay (test)':'Pay'} · ${fmt(l.price_usdc)} USDC</button></div>`;
   modal.querySelector('.close').onclick=closeModal;overlay.classList.add('show');
   modal.querySelector('#go').onclick=()=>{
-    if(l.kind==='physical'&&!$('#shipTo').value.trim())return toast('Add a shipping address first');
+    if(l.kind==='physical'){const p=addrProblem($('#shipTo').value);if(p)return toast(p);}
     pay(l);
   };
+}
+// A package can't be delivered to a first name. Escrow only protects the buyer
+// if the seller actually has somewhere to ship to.
+function addrProblem(a){
+  const t=(a||'').trim();
+  if(t.length<12)return 'Add a full shipping address — name, street, city, state, ZIP.';
+  if(!/\d/.test(t))return 'That address needs a street number and ZIP code.';
+  if(t.split(/[\n,]/).filter(x=>x.trim()).length<3)return 'Add a full shipping address — name, street, city, state, ZIP.';
+  return null;
 }
 // The address is posted right after the order exists, before payment, so the
 // seller always has somewhere to ship to the moment escrow funds.
 async function saveShipping(orderId,l){
   if(l.kind!=='physical')return;
   const el=$('#shipTo');const address=el?el.value.trim():'';
-  if(!address)return;
-  try{await api(`/api/orders/${orderId}/shipping`,{method:'POST',body:JSON.stringify({address})});}
-  catch(e){console.warn('shipping save failed',e.message);}
+  const p=addrProblem(address);if(p)throw new Error(p);
+  // Must throw: funding escrow with no address to ship to strands the buyer's money.
+  await api(`/api/orders/${orderId}/shipping`,{method:'POST',body:JSON.stringify({address})});
 }
 async function pay(l){
   if(!TEST) return payOnchain(l);
@@ -405,15 +414,45 @@ async function showDelivery(orderId,l){
 
 // ---- orders ----
 const FLOW={physical:[['funded','Funded'],['shipped','Shipped'],['released','Received']],service:[['funded','Funded'],['in_progress','In progress'],['submitted','Delivered'],['released','Approved']]};
-function actions(o){
-  if(o.state==='released')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:#7ee787">✓ Released — seller received ${fmt(o.amount_usdc-o.amount_usdc*FEE)} USDC</span></div>`;
-  if(o.state==='refunded')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:var(--muted)">↩ Refunded to buyer</span></div>`;
+function waiting(t){return `<div class="om" style="margin-top:6px;color:var(--muted)">${t}</div>`;}
+function row(b,o){b=b.slice();b.push(`<button class="oa warn" data-act="dispute" data-id="${o.id}">Dispute</button>`);return `<div style="margin-top:6px">${b.join('')}</div>`;}
+function actions(o,iAmSeller){
+  if(o.state==='released')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:#7ee787">\u2713 Released \u2014 seller received ${fmt(o.amount_usdc-o.amount_usdc*FEE)} USDC</span></div>`;
+  if(o.state==='refunded')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:var(--muted)">\u21a9 Refunded to buyer</span></div>`;
+  const iAmArbiter=!!CHAIN.arbiter&&me===CHAIN.arbiter;
   let b=[];
-  if(o.state==='disputed'){b.push(`<span class="role">arbiter:</span>`);b.push(`<button class="oa primary" data-act="resolve" data-to="1" data-id="${o.id}">Release to seller</button>`);b.push(`<button class="oa" data-act="resolve" data-to="0" data-id="${o.id}">Refund buyer</button>`);return `<div style="margin-top:6px">${b.join('')}</div>`;}
-  if(o.kind==='physical'){if(o.state==='funded')b.push(`<button class="oa" data-act="ship" data-id="${o.id}"><span class="role">seller</span>Mark shipped</button>`);if(o.state==='shipped')b.push(`<button class="oa primary" data-act="release" data-id="${o.id}"><span class="role">buyer</span>Confirm delivery & release</button>`);}
-  if(o.kind==='service'){if(o.state==='funded')b.push(`<button class="oa" data-act="start" data-id="${o.id}"><span class="role">seller</span>Start work</button>`);if(o.state==='funded'||o.state==='in_progress')b.push(`<button class="oa" data-act="submit" data-id="${o.id}"><span class="role">seller</span>Submit deliverable</button>`);if(o.state==='submitted'){b.push(`<button class="oa primary" data-act="release" data-id="${o.id}"><span class="role">buyer</span>Approve & release</button>`);b.push(`<button class="oa" data-act="changes" data-id="${o.id}"><span class="role">buyer</span>Request changes</button>`);}}
-  b.push(`<button class="oa warn" data-act="dispute" data-id="${o.id}">Dispute</button>`);
-  return `<div style="margin-top:6px">${b.join('')}</div>`;
+  if(o.state==='disputed'){
+    if(!iAmArbiter)return waiting('\u2696 Disputed \u2014 an arbiter reviews and decides. Neither side can move the funds.');
+    b.push(`<span class="role">arbiter:</span>`);
+    b.push(`<button class="oa primary" data-act="resolve" data-to="1" data-id="${o.id}">Release to seller</button>`);
+    b.push(`<button class="oa" data-act="resolve" data-to="0" data-id="${o.id}">Refund buyer</button>`);
+    return `<div style="margin-top:6px">${b.join('')}</div>`;
+  }
+  if(o.kind==='physical'){
+    if(o.state==='funded')  return iAmSeller?row([`<button class="oa" data-act="ship" data-id="${o.id}">Mark shipped</button>`],o)
+                                           :waiting('Paid. Waiting for the seller to ship.')+row([],o);
+    if(o.state==='shipped') return iAmSeller?waiting('Shipped. Waiting for the buyer to confirm delivery.')+row([],o)
+                                           :row([`<button class="oa primary" data-act="release" data-id="${o.id}">Confirm delivery & release</button>`],o);
+  }
+  if(o.kind==='service'){
+    if(o.state==='funded'){
+      if(!iAmSeller)return waiting('Paid. Waiting for the seller to start.')+row([],o);
+      b.push(`<button class="oa" data-act="start" data-id="${o.id}">Start work</button>`);
+      b.push(`<button class="oa" data-act="submit" data-id="${o.id}">Submit deliverable</button>`);
+      return row(b,o);
+    }
+    if(o.state==='in_progress'){
+      if(!iAmSeller)return waiting('Work in progress.')+row([],o);
+      return row([`<button class="oa" data-act="submit" data-id="${o.id}">Submit deliverable</button>`],o);
+    }
+    if(o.state==='submitted'){
+      if(iAmSeller)return waiting('Submitted. Waiting for the buyer to approve.')+row([],o);
+      b.push(`<button class="oa primary" data-act="release" data-id="${o.id}">Approve & release</button>`);
+      b.push(`<button class="oa" data-act="changes" data-id="${o.id}">Request changes</button>`);
+      return row(b,o);
+    }
+  }
+  return row(b,o);
 }
 function steps(o){const flow=FLOW[o.kind];if(!flow)return'';const order=flow.map(f=>f[0]);let idx=order.indexOf(o.state);if(o.state==='released')idx=order.length-1;if(o.state==='disputed'||o.state==='refunded')idx=-1;
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;font-family:'IBM Plex Mono',monospace;font-size:11px">${flow.map((f,i)=>{const c=(i<idx||o.state==='released')?'#3FD8C7':(i===idx?'#F0B537':'#666CA2');return `<span style="color:${c}">${i>0?'→ ':''}${esc(f[1])}</span>`;}).join('')}</div>`;}
@@ -437,7 +476,7 @@ async function renderOrders(){
     const msgs=`<button class="oa" data-act="thread" data-id="${o.id}">Messages${Number(o.unread)?` <span class="unread">${o.unread}</span>`:''}</button>`;
     return `<div class="order"><div class="order-top"><div><h3>${esc(o.title)}</h3><div class="om">${kindLabel[o.kind]} · ${fmt(o.amount_usdc)} USDC · ${esc(o.handle||short(o.seller_wallet))} · <span class="role-tag">${iAmSeller?'you are the seller':'you are the buyer'}</span></div>${extra}</div><span class="state ${o.state}">${o.state.replace('_',' ')}</span></div>
       ${active?`<div class="held"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="#3FD8C7" stroke-width="1.7"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#3FD8C7" stroke-width="1.7"/></svg>${fmt(o.amount_usdc)} USDC held in escrow</div>`:''}
-      ${instant?(o.state==='released'?`<button class="oa" data-open="${o.id}">Open goods</button>`:''):steps(o)+actions(o)}<div style="margin-top:8px">${msgs}</div>${chainlinks}</div>`;}).join('');
+      ${instant?(o.state==='released'?`<button class="oa" data-open="${o.id}">Open goods</button>`:''):steps(o)+actions(o,iAmSeller)}<div style="margin-top:8px">${msgs}</div>${chainlinks}</div>`;}).join('');
 }
 async function refreshPip(){const p=$('#pip');if(!me){p.style.display='none';return;}try{const d=await api('/api/orders');const n=(d.orders||[]).filter(o=>['funded','shipped','in_progress','submitted','disputed'].includes(o.state)).length;p.style.display=n?'grid':'none';p.textContent=n;}catch{}}
 
@@ -647,7 +686,7 @@ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.datas
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchView(t.dataset.view)));
 
 (async()=>{
-  try{const c=await api('/api/config');TEST=c.test_mode;CHAIN={escrow:c.escrow,token:c.token,chain_id:c.chain_id};
+  try{const c=await api('/api/config');TEST=c.test_mode;CHAIN={escrow:c.escrow,token:c.token,chain_id:c.chain_id,arbiter:(c.arbiter||'').toLowerCase()};
     const tm=$('#tmode');tm.style.display='inline-block';
     if(!TEST){tm.textContent='BASE SEPOLIA';tm.style.color='#3FD8C7';}
   }catch{}

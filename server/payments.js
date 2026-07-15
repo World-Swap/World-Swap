@@ -245,7 +245,9 @@ payments.post('/:id/shipping', requireAuth, async (req, res) => {
   if (!o) return;
   if (o.kind !== 'physical') return res.status(400).json({ error: 'only physical orders need an address' });
   const addr = String(req.body?.address || '').trim().slice(0, 600);
-  if (!addr) return res.status(400).json({ error: 'address required' });
+  if (addr.length < 12 || !/\d/.test(addr) || addr.split(/[\n,]/).filter(s => s.trim()).length < 3) {
+    return res.status(400).json({ error: 'a full shipping address is required — name, street, city, state, ZIP' });
+  }
   await q(`UPDATE orders SET shipping_sealed = $2 WHERE id = $1`, [o.id, sealText(addr)]);
   res.json({ ok: true });
 });
