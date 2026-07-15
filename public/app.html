@@ -51,7 +51,9 @@
   .msg-m{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--muted-2);margin-top:4px}
   .msg.mine .msg-m{text-align:right}
   .composer{display:flex;gap:8px;align-items:flex-end}
-  .composer textarea{flex:1;resize:vertical}
+  .composer textarea{flex:1 1 auto;min-width:0;resize:vertical;min-height:44px;background:var(--ink-2);border:1px solid var(--line);color:var(--text);font-size:14px;padding:11px 13px;border-radius:10px;outline:none}
+  .composer textarea:focus{border-color:var(--gold)}
+  .composer .m-btn{flex:0 0 auto;width:auto;padding:12px 20px}
   .addr{background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:14px;font-family:"IBM Plex Mono",monospace;font-size:13px;white-space:pre-wrap;margin:6px 0 14px}
   .view{display:none;padding:30px 0 90px}.view.active{display:block}
   .head{margin-bottom:20px}.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--teal);margin-bottom:7px}
