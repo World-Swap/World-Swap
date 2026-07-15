@@ -268,7 +268,12 @@ payments.get('/', requireAuth, async (req, res) => {
               WHERE m.order_id = o.id AND lower(m.sender) <> $1 AND m.read_at IS NULL) AS unread
        FROM orders o
        JOIN listings l ON l.id = o.listing_id
-      WHERE lower(o.buyer_wallet) = $1 OR lower(o.seller_wallet) = $1
+      WHERE (lower(o.buyer_wallet) = $1 OR lower(o.seller_wallet) = $1)
+        -- A 'created' order that never funded is an abandoned cart: the wallet
+        -- prompt was closed, or the buyer was short. Nothing happened on-chain,
+        -- so don't clutter the list with it.
+        AND NOT (o.state = 'created' AND o.tx_fund IS NULL
+                 AND o.created_at < now() - interval '20 minutes')
       ORDER BY o.created_at DESC LIMIT 100`, [req.wallet]);
   // Never leak the sealed address in a list response.
   for (const r of rows) { r.has_shipping = !!r.shipping_sealed; delete r.shipping_sealed; }
