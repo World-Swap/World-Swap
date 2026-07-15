@@ -121,6 +121,28 @@ CREATE INDEX IF NOT EXISTS orders_seller_idx ON orders (seller_wallet, created_a
 CREATE INDEX IF NOT EXISTS orders_state_idx  ON orders (state);
 
 -- ---------------------------------------------------------------------------
+-- Messages — per-order threads between buyer and seller.
+-- Only the two parties to an order can read or write. This is where shipping
+-- questions, revisions and "where is it?" happen, before anyone opens a dispute.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS messages (
+  id          bigserial PRIMARY KEY,
+  order_id    uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  sender      varchar(42) NOT NULL,
+  body        text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  read_at     timestamptz
+);
+CREATE INDEX IF NOT EXISTS messages_order_idx ON messages (order_id, created_at);
+
+-- Physical delivery: the buyer's address is encrypted at rest (AES-256-GCM) and
+-- only ever decrypted for the seller of that order. Tracking is structured so we
+-- can build a carrier link instead of showing raw text.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_sealed  text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_carrier text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_number  text;
+
+-- ---------------------------------------------------------------------------
 -- Disputes
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS disputes (

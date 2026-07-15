@@ -41,6 +41,18 @@
   .sell-as{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--teal);background:var(--ink-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
   .seller-link{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted-2)}
   .seller-link:hover{color:var(--teal);border-bottom-color:var(--teal)}
+  .role-tag{color:var(--muted-2)}
+  .unread{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--gold);color:#0b1220;font-size:10px;font-weight:700;text-align:center}
+  .thread{max-height:340px;overflow-y:auto;padding:4px 2px;margin:6px 0 12px}
+  .msg{margin-bottom:12px;max-width:82%}
+  .msg.mine{margin-left:auto}
+  .msg-b{background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:14px;white-space:pre-wrap;word-break:break-word}
+  .msg.mine .msg-b{background:rgba(63,216,199,.10);border-color:rgba(63,216,199,.35)}
+  .msg-m{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--muted-2);margin-top:4px}
+  .msg.mine .msg-m{text-align:right}
+  .composer{display:flex;gap:8px;align-items:flex-end}
+  .composer textarea{flex:1;resize:vertical}
+  .addr{background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:14px;font-family:"IBM Plex Mono",monospace;font-size:13px;white-space:pre-wrap;margin:6px 0 14px}
   .view{display:none;padding:30px 0 90px}.view.active{display:block}
   .head{margin-bottom:20px}.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--teal);margin-bottom:7px}
   h1{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:28px;letter-spacing:-.02em;margin:0 0 7px}.sub{color:var(--muted);margin:0;font-size:15px;max-width:64ch}
@@ -312,15 +324,29 @@ async function openBuy(id){
     <div class="crow"><span class="k">→ World Swap fee (0.5%)</span><span class="v fee">${fmt(fee)}</span></div><div class="divide"></div>
     <div class="crow"><span class="k">Release</span><span class="v net">${instant?'instant on payment':(svc?'when you approve':'when you confirm delivery')}</span></div></div>
     ${instant?'':`<div class="escrow-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="#3FD8C7" stroke-width="1.6"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#3FD8C7" stroke-width="1.6"/></svg><span>Your ${fmt(l.price_usdc)} USDC locks in escrow — not World Swap's wallet — until you release it.</span></div>`}
+    ${l.kind==='physical'?`<div class="f"><label for="shipTo">Ship to <span>(encrypted — only this seller can read it)</span></label><textarea id="shipTo" rows="3" maxlength="600" placeholder="Name&#10;Street&#10;City, State ZIP&#10;Country"></textarea></div>`:''}
     <div id="stage"><button class="m-btn primary" id="go">${TEST?'Pay (test)':'Pay'} · ${fmt(l.price_usdc)} USDC</button></div>`;
   modal.querySelector('.close').onclick=closeModal;overlay.classList.add('show');
-  modal.querySelector('#go').onclick=()=>pay(l);
+  modal.querySelector('#go').onclick=()=>{
+    if(l.kind==='physical'&&!$('#shipTo').value.trim())return toast('Add a shipping address first');
+    pay(l);
+  };
+}
+// The address is posted right after the order exists, before payment, so the
+// seller always has somewhere to ship to the moment escrow funds.
+async function saveShipping(orderId,l){
+  if(l.kind!=='physical')return;
+  const el=$('#shipTo');const address=el?el.value.trim():'';
+  if(!address)return;
+  try{await api(`/api/orders/${orderId}/shipping`,{method:'POST',body:JSON.stringify({address})});}
+  catch(e){console.warn('shipping save failed',e.message);}
 }
 async function pay(l){
   if(!TEST) return payOnchain(l);
   const stage=$('#stage');stage.innerHTML='<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Settling…</div></div>';
   try{
     const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id})});
+    await saveShipping(ord.order_id,l);
     const r=await api('/api/orders/'+ord.order_id+'/pay',{method:'POST',body:JSON.stringify({})});
     if(l.kind==='digital'&&r.state==='released'){await showDelivery(ord.order_id,l);}
     else{stage.innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#3FD8C7" stroke-width="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" stroke="#3FD8C7" stroke-width="1.8"/></svg></div><h4>${fmt(l.price_usdc)} USDC in escrow</h4><p class="p">${l.kind==='service'?'Release the funds once you approve the work.':'Release once you confirm the item arrived.'}</p><button class="m-btn primary" id="toO">Track in Orders</button></div>`;modal.querySelector('#toO').onclick=()=>{closeModal();switchView('orders');};}
@@ -332,6 +358,7 @@ async function payOnchain(l){
   try{
     const signer=await ensureWallet();
     const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id})});
+    await saveShipping(ord.order_id,l);
     if(!ord.token||!ord.escrow) throw new Error('On-chain addresses not configured on the server.');
     const amount=ethers.parseUnits(String(l.price_usdc),6);           // USDC has 6 decimals
     const usdc=new ethers.Contract(ord.token,ERC20_ABI,signer);
@@ -395,17 +422,25 @@ async function renderOrders(){
   $('#escrowSummary').style.display=held>0?'flex':'none';$('#heldTotal').textContent=fmt(held)+' USDC';
   if(!orders.length){list.innerHTML='<div class="empty">No orders yet. Buy or hire from <b>Browse</b>.</div>';return;}
   list.innerHTML=orders.map(o=>{const active=activeStates.includes(o.state);const instant=o.kind==='digital';
-    let extra='';if(o.tracking)extra+=`<div class="om" style="margin-top:5px">tracking: ${esc(o.tracking)}</div>`;if(o.deliverable_ref)extra+=`<div class="om" style="margin-top:5px">delivered: ${esc(o.deliverable_ref)}</div>`;
+    const iAmSeller=(o.seller_wallet||'').toLowerCase()===me;
+    let extra='';
+    if(o.tracking_number||o.tracking){const u=carrierUrl(o.tracking_carrier,o.tracking_number||o.tracking);
+      extra+=`<div class="om" style="margin-top:5px">tracking: ${u?`<a class="txlink" href="${u}" target="_blank">${esc(CARRIER_NAME[o.tracking_carrier]||'track')} ${esc(o.tracking_number||o.tracking)} ↗</a>`:esc(o.tracking_number||o.tracking)}</div>`;}
+    if(o.deliverable_ref)extra+=`<div class="om" style="margin-top:5px">delivered: ${esc(o.deliverable_ref)}</div>`;
+    if(iAmSeller&&o.has_shipping)extra+=`<div class="om" style="margin-top:5px"><a class="txlink" href="#" data-act="address" data-id="${o.id}">view shipping address</a></div>`;
     let chainlinks='';if(!TEST){const L=[];if(o.tx_fund)L.push(`<a href="https://sepolia.basescan.org/tx/${esc(o.tx_fund)}" target="_blank" class="txlink">fund tx ↗</a>`);if(o.tx_release)L.push(`<a href="https://sepolia.basescan.org/tx/${esc(o.tx_release)}" target="_blank" class="txlink">release tx ↗</a>`);if(L.length)chainlinks=`<div class="txlinks">${L.join('')}</div>`;}
-    return `<div class="order"><div class="order-top"><div><h3>${esc(o.title)}</h3><div class="om">${kindLabel[o.kind]} · ${fmt(o.amount_usdc)} USDC · ${esc(o.handle||short(o.seller_wallet))}</div>${extra}</div><span class="state ${o.state}">${o.state.replace('_',' ')}</span></div>
+    const msgs=`<button class="oa" data-act="thread" data-id="${o.id}">Messages${Number(o.unread)?` <span class="unread">${o.unread}</span>`:''}</button>`;
+    return `<div class="order"><div class="order-top"><div><h3>${esc(o.title)}</h3><div class="om">${kindLabel[o.kind]} · ${fmt(o.amount_usdc)} USDC · ${esc(o.handle||short(o.seller_wallet))} · <span class="role-tag">${iAmSeller?'you are the seller':'you are the buyer'}</span></div>${extra}</div><span class="state ${o.state}">${o.state.replace('_',' ')}</span></div>
       ${active?`<div class="held"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="#3FD8C7" stroke-width="1.7"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#3FD8C7" stroke-width="1.7"/></svg>${fmt(o.amount_usdc)} USDC held in escrow</div>`:''}
-      ${instant?(o.state==='released'?`<button class="oa" data-open="${o.id}">Open goods</button>`:''):steps(o)+actions(o)}${chainlinks}</div>`;}).join('');
+      ${instant?(o.state==='released'?`<button class="oa" data-open="${o.id}">Open goods</button>`:''):steps(o)+actions(o)}<div style="margin-top:8px">${msgs}</div>${chainlinks}</div>`;}).join('');
 }
 async function refreshPip(){const p=$('#pip');if(!me){p.style.display='none';return;}try{const d=await api('/api/orders');const n=(d.orders||[]).filter(o=>['funded','shipped','in_progress','submitted','disputed'].includes(o.state)).length;p.style.display=n?'grid':'none';p.textContent=n;}catch{}}
 
 async function doAct(id,act,el){
   try{
-    if(act==='ship'){const t=prompt('Tracking (optional):','1Z-DEMO-'+hex(6).toUpperCase());await api('/api/orders/'+id+'/ship',{method:'POST',body:JSON.stringify({tracking:t})});}
+    if(act==='thread'){return openThread(id);}
+    if(act==='address'){return openAddress(id);}
+    if(act==='ship'){return openShip(id);}
     else if(act==='start'){await api('/api/orders/'+id+'/start',{method:'POST',body:JSON.stringify({})});}
     else if(act==='submit'){const d=prompt('Link/note for the deliverable:','https://drive.example/'+hex(5));await api('/api/orders/'+id+'/submit',{method:'POST',body:JSON.stringify({deliverable:d})});}
     else if(act==='changes'){await api('/api/orders/'+id+'/changes',{method:'POST',body:JSON.stringify({})});}
@@ -419,7 +454,7 @@ async function doAct(id,act,el){
 document.addEventListener('click',e=>{
   const buy=e.target.closest('[data-buy]');if(buy)return openBuy(buy.dataset.buy);
   const open=e.target.closest('[data-open]');if(open)return openInstantAgain(open.dataset.open);
-  const a=e.target.closest('[data-act]');if(a)return doAct(a.dataset.id,a.dataset.act,a);
+  const a=e.target.closest('[data-act]');if(a){if(a.tagName==='A')e.preventDefault();return doAct(a.dataset.id,a.dataset.act,a);}
 });
 async function openInstantAgain(orderId){
   overlay.classList.add('show');modal.innerHTML=`<div class="modal-head"><div></div><button class="close">×</button></div><div id="stage"></div>`;
@@ -507,6 +542,75 @@ async function showProfile(id){
   }catch(e){body(`<div style="color:var(--danger)">${esc(e.message)}</div>`);}
 }
 window.showProfile=showProfile;
+
+// ---- carriers / tracking ---------------------------------------------------
+const CARRIER_NAME={ups:'UPS',usps:'USPS',fedex:'FedEx',dhl:'DHL',other:''};
+const CARRIER_URL={
+  ups:n=>`https://www.ups.com/track?tracknum=${encodeURIComponent(n)}`,
+  usps:n=>`https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(n)}`,
+  fedex:n=>`https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(n)}`,
+  dhl:n=>`https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(n)}`,
+};
+const carrierUrl=(c,n)=>(c&&n&&CARRIER_URL[c])?CARRIER_URL[c](n):null;
+
+// ---- per-order message thread ---------------------------------------------
+function msgRow(m,meWallet){
+  const mine=(m.sender||'').toLowerCase()===meWallet;
+  const who=m.handle?'@'+m.handle:short(m.sender);
+  return `<div class="msg ${mine?'mine':''}"><div class="msg-b">${esc(m.body)}</div>
+    <div class="msg-m">${mine?'you':esc(who)} · ${new Date(m.created_at).toLocaleString()}</div></div>`;
+}
+async function openThread(id){
+  modal.innerHTML=`<div class="modal-head"><div><h3>Messages</h3><p class="m-item">Only you and the other party can read this.</p></div><button class="close">×</button></div>
+    <div class="thread" id="thread">${spin('Loading…')}</div>
+    <div class="composer"><textarea id="msgBox" rows="2" maxlength="2000" placeholder="Write a message…"></textarea><button class="m-btn primary" id="msgSend">Send</button></div>`;
+  overlay.classList.add('show');
+  modal.querySelector('.close').onclick=closeModal;
+  const paint=async()=>{
+    try{const d=await api(`/api/orders/${id}/messages`);
+      $('#thread').innerHTML=d.messages.length?d.messages.map(m=>msgRow(m,d.me)).join(''):'<div class="empty" style="padding:18px">No messages yet. Say hello.</div>';
+      const t=$('#thread');t.scrollTop=t.scrollHeight;
+    }catch(e){$('#thread').innerHTML=`<div style="color:var(--danger);padding:12px">${esc(e.message)}</div>`;}
+  };
+  await paint();
+  const send=async()=>{
+    const box=$('#msgBox');const body=box.value.trim();if(!body)return;
+    box.value='';$('#msgSend').disabled=true;
+    try{await api(`/api/orders/${id}/messages`,{method:'POST',body:JSON.stringify({body})});await paint();}
+    catch(e){toast(e.message);box.value=body;}
+    finally{$('#msgSend').disabled=false;}
+  };
+  $('#msgSend').onclick=send;
+  $('#msgBox').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))send();});
+  $('#msgBox').focus();
+}
+// ---- seller: mark shipped with a real carrier ------------------------------
+function openShip(id){
+  modal.innerHTML=`<div class="modal-head"><div><h3>Mark shipped</h3><p class="m-item">The buyer gets notified and can track it.</p></div><button class="close">×</button></div>
+    <div class="f"><label for="shCarrier">Carrier</label><select id="shCarrier"><option value="usps">USPS</option><option value="ups">UPS</option><option value="fedex">FedEx</option><option value="dhl">DHL</option><option value="other">Other</option></select></div>
+    <div class="f"><label for="shNum">Tracking number</label><input id="shNum" class="mono" placeholder="9400 1000 0000 0000 0000 00" spellcheck="false"></div>
+    <div class="perr" id="shErr"></div>
+    <button class="m-btn primary" id="shGo">Mark shipped</button>`;
+  overlay.classList.add('show');
+  modal.querySelector('.close').onclick=closeModal;
+  $('#shGo').onclick=async()=>{
+    const carrier=$('#shCarrier').value,tracking_number=$('#shNum').value.trim();
+    if(!tracking_number)return $('#shErr').textContent='Add a tracking number (or pick Other and note it in Messages).';
+    try{await api('/api/orders/'+id+'/ship',{method:'POST',body:JSON.stringify({carrier,tracking_number})});
+      closeModal();toast('Marked shipped');renderOrders();refreshPip();
+    }catch(e){$('#shErr').textContent=e.message;}
+  };
+}
+// ---- seller: read the buyer's address (decrypted server-side, seller only) --
+async function openAddress(id){
+  modal.innerHTML=`<div class="m-body">${spin('Decrypting…')}</div>`;overlay.classList.add('show');
+  try{const d=await api(`/api/orders/${id}/shipping`);
+    modal.innerHTML=`<div class="modal-head"><div><h3>Ship to</h3><p class="m-item">Stored encrypted — visible only to you as the seller.</p></div><button class="close">×</button></div>
+      <pre class="addr">${esc(d.address||'No address on file.')}</pre>
+      <button class="m-btn" id="aClose">Close</button>`;
+    modal.querySelector('.close').onclick=closeModal;$('#aClose').onclick=closeModal;
+  }catch(e){modal.innerHTML=`<div class="m-body"><div style="color:var(--danger)">${esc(e.message)}</div></div>`;}
+}
 
 function switchView(v){
 document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));$('#v-'+v).classList.add('active');if(v==='browse')renderBrowse();if(v==='orders')renderOrders();if(v==='profile')renderProfile();if(v==='sell')syncSell();window.scrollTo(0,0);}

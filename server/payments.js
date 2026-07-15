@@ -3,12 +3,14 @@ import { Router } from 'express';
 import { keccak256, toUtf8Bytes, JsonRpcProvider, Contract } from 'ethers';
 import { q, config } from './config.js';
 import { settleFunding, settleRelease } from './settlement.js';
-import { unsealForOrder } from './crypto.js';
+import { unsealForOrder, sealText, unsealText } from './crypto.js';
 import { requireAuth } from './auth.js';
+import { notify, tmpl } from './notify.js';
 
 export const payments = Router();
 const isAddr = a => /^0x[a-fA-F0-9]{40}$/.test(a || '');
 const feeOf  = amt => (Number(amt) * config.feeBps / 10_000);
+const short  = a => a && a.length > 12 ? a.slice(0, 6) + '…' + a.slice(-4) : a;
 
 const SWAP_READ_ABI = ['function orders(bytes32) view returns (address buyer,address seller,uint256 amount,uint8 state)'];
 // contract State enum: 0 None, 1 Funded, 2 Released, 3 Refunded, 4 Disputed
@@ -79,6 +81,8 @@ payments.post('/:id/pay', requireAuth, async (req, res) => {
   const result = await settleFunding(o);
   if (!config.testMode && req.body?.tx_hash)
     await q(`UPDATE orders SET tx_fund=$2 WHERE id=$1`, [o.id, req.body.tx_hash]);
+  const title = (await q(`SELECT title FROM listings WHERE id=$1`, [o.listing_id])).rows[0]?.title || 'your listing';
+  notify(o.seller_wallet, `New order — ${title}`, tmpl.newOrder(title, o.amount_usdc));
   res.json({ result, state: (await getOrder(o.id)).state });
 });
 
@@ -124,10 +128,25 @@ async function transition(id, from, to, patch = {}) {
   return rows[0];
 }
 
+const CARRIERS = {
+  ups:   { name: 'UPS',   url: n => `https://www.ups.com/track?tracknum=${encodeURIComponent(n)}` },
+  usps:  { name: 'USPS',  url: n => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(n)}` },
+  fedex: { name: 'FedEx', url: n => `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(n)}` },
+  dhl:   { name: 'DHL',   url: n => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(n)}` },
+  other: { name: 'Other', url: () => null },
+};
+
 payments.post('/:id/ship', requireAuth, async (req, res) => {
-  if (!await guard(req, res, ['seller'])) return;
-  const o = await transition(req.params.id, 'funded', 'shipped', { tracking: req.body?.tracking || null });
-  o ? res.json({ order: o }) : res.status(409).json({ error: 'invalid transition' });
+  const ord = await guard(req, res, ['seller']);
+  if (!ord) return;
+  const carrier = CARRIERS[String(req.body?.carrier || '').toLowerCase()] ? String(req.body.carrier).toLowerCase() : null;
+  const number  = String(req.body?.tracking_number || req.body?.tracking || '').trim().slice(0, 80) || null;
+  const o = await transition(req.params.id, 'funded', 'shipped',
+    { tracking: number, tracking_carrier: carrier, tracking_number: number });
+  if (!o) return res.status(409).json({ error: 'invalid transition' });
+  const title = (await q(`SELECT title FROM listings WHERE id=$1`, [ord.listing_id])).rows[0]?.title || 'your order';
+  notify(ord.buyer_wallet, `Shipped — ${title}`, tmpl.shipped(title, carrier ? CARRIERS[carrier].name : null));
+  res.json({ order: o });
 });
 payments.post('/:id/start', requireAuth, async (req, res) => {
   if (!await guard(req, res, ['seller'])) return;
@@ -159,16 +178,22 @@ payments.post('/:id/release', requireAuth, async (req, res) => {
       error: o.state === 'disputed' ? 'only the arbiter can release a disputed order'
                                     : 'only the buyer can release' });
   const result = await settleRelease(o);
+  const title = (await q(`SELECT title FROM listings WHERE id=$1`, [o.listing_id])).rows[0]?.title || 'your order';
+  notify(o.seller_wallet, `Funds released — ${title}`, tmpl.released(title, o.amount_usdc));
   res.json({ result, state: (await getOrder(o.id)).state });
 });
 
 // Dispute: either party may open. Arbiter resolves.
 payments.post('/:id/dispute', requireAuth, async (req, res) => {
-  if (!await guard(req, res, ['buyer', 'seller'])) return;
+  const ord = await guard(req, res, ['buyer', 'seller']);
+  if (!ord) return;
   const o = await transition(req.params.id, ['funded', 'shipped', 'in_progress', 'submitted'], 'disputed');
   if (!o) return res.status(409).json({ error: 'invalid transition' });
   await q(`INSERT INTO disputes (order_id, opened_by, reason) VALUES ($1,$2,$3)`,
     [req.params.id, req.wallet, req.body?.reason || null]);
+  const other = lc(ord.buyer_wallet) === req.wallet ? ord.seller_wallet : ord.buyer_wallet;
+  const title = (await q(`SELECT title FROM listings WHERE id=$1`, [ord.listing_id])).rows[0]?.title || 'an order';
+  notify(other, `Dispute opened — ${title}`, tmpl.disputed(title));
   res.json({ order: o });
 });
 payments.post('/:id/resolve', requireAuth, async (req, res) => {
@@ -183,14 +208,69 @@ payments.post('/:id/resolve', requireAuth, async (req, res) => {
   res.json({ state: (await getOrder(ord.id)).state });
 });
 
+// --- messages: per-order thread, the two parties only ------------------------
+payments.get('/:id/messages', requireAuth, async (req, res) => {
+  const o = await guard(req, res, ['buyer', 'seller']);
+  if (!o) return;
+  const { rows } = await q(
+    `SELECT m.id, m.sender, m.body, m.created_at, u.handle
+       FROM messages m LEFT JOIN users u ON lower(u.wallet) = lower(m.sender)
+      WHERE m.order_id = $1 ORDER BY m.created_at ASC LIMIT 200`, [o.id]);
+  // Anything not written by me is now read.
+  await q(`UPDATE messages SET read_at = now()
+            WHERE order_id = $1 AND lower(sender) <> $2 AND read_at IS NULL`, [o.id, req.wallet]);
+  res.json({ messages: rows, me: req.wallet });
+});
+
+payments.post('/:id/messages', requireAuth, async (req, res) => {
+  const o = await guard(req, res, ['buyer', 'seller']);
+  if (!o) return;
+  const body = String(req.body?.body || '').trim().slice(0, 2000);
+  if (!body) return res.status(400).json({ error: 'message is empty' });
+  const { rows } = await q(
+    `INSERT INTO messages (order_id, sender, body) VALUES ($1,$2,$3)
+       RETURNING id, sender, body, created_at`, [o.id, req.wallet, body]);
+
+  const other = lc(o.buyer_wallet) === req.wallet ? o.seller_wallet : o.buyer_wallet;
+  const who = await q(`SELECT handle FROM users WHERE lower(wallet) = $1`, [req.wallet]);
+  const title = (await q(`SELECT title FROM listings WHERE id = $1`, [o.listing_id])).rows[0]?.title || 'your order';
+  notify(other, `New message — ${title}`, tmpl.newMessage(title, who.rows[0]?.handle ? '@' + who.rows[0].handle : short(req.wallet)));
+
+  res.status(201).json({ message: rows[0] });
+});
+
+// --- shipping address: buyer writes, seller reads. Encrypted at rest. --------
+payments.post('/:id/shipping', requireAuth, async (req, res) => {
+  const o = await guard(req, res, ['buyer']);
+  if (!o) return;
+  if (o.kind !== 'physical') return res.status(400).json({ error: 'only physical orders need an address' });
+  const addr = String(req.body?.address || '').trim().slice(0, 600);
+  if (!addr) return res.status(400).json({ error: 'address required' });
+  await q(`UPDATE orders SET shipping_sealed = $2 WHERE id = $1`, [o.id, sealText(addr)]);
+  res.json({ ok: true });
+});
+
+// Seller needs it to ship; buyer can re-read what they entered. Nobody else.
+payments.get('/:id/shipping', requireAuth, async (req, res) => {
+  const o = await guard(req, res, ['buyer', 'seller']);
+  if (!o) return;
+  if (!o.shipping_sealed) return res.json({ address: null });
+  res.json({ address: unsealText(o.shipping_sealed) });
+});
+
 // --- list the signed-in wallet's orders --------------------------------------
 payments.get('/', requireAuth, async (req, res) => {
   const { rows } = await q(
-    `SELECT o.*, l.title, l.handle FROM orders o
+    `SELECT o.*, l.title, l.handle,
+            (SELECT COUNT(*) FROM messages m
+              WHERE m.order_id = o.id AND lower(m.sender) <> $1 AND m.read_at IS NULL) AS unread
+       FROM orders o
        JOIN listings l ON l.id = o.listing_id
       WHERE lower(o.buyer_wallet) = $1 OR lower(o.seller_wallet) = $1
       ORDER BY o.created_at DESC LIMIT 100`, [req.wallet]);
-  res.json({ orders: rows });
+  // Never leak the sealed address in a list response.
+  for (const r of rows) { r.has_shipping = !!r.shipping_sealed; delete r.shipping_sealed; }
+  res.json({ orders: rows, me: req.wallet });
 });
 
 // --- gated deliverable (digital) --------------------------------------------

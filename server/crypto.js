@@ -22,6 +22,11 @@ function decrypt(b64) {
   return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
 }
 
+// Same envelope, reused for buyer shipping addresses: encrypted at rest, only
+// ever decrypted for the seller of that specific order.
+export const sealText   = (s) => encrypt(String(s));
+export const unsealText = (b64) => { try { return decrypt(b64); } catch { return null; } };
+
 // Called on listing creation. For key/link/text we encrypt the value; for files
 // you'd upload the encrypted blob to object storage and keep the storage_key.
 export async function sealSecret(asset) {
