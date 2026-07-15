@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: world-swap
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TEST_MODE
+        value: "true"
+      - key: DATABASE_URL
+        sync: false          # set in dashboard (Neon)
+      - key: ASSET_ENCRYPTION_KEY
+        generateValue: true  # Render generates a random secret
+      - key: SESSION_SECRET
+        generateValue: true  # signs sign-in cookies
+
+# When you go on-chain, add a worker:
+#  - type: worker
+#    name: world-swap-watcher
+#    runtime: node
+#    buildCommand: npm install
+#    startCommand: npm run watcher
+#    envVars:
+#      - key: TEST_MODE
+#        value: "false"
+#      - key: DATABASE_URL
+#        sync: false
+#      - key: RPC_URL
+#        sync: false
+#      - key: ESCROW_ADDRESS
+#        sync: false
