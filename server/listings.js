@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { q } from './config.js';
 import { sealSecret } from './crypto.js';       // encrypts digital payloads at rest
+import { requireAuth } from './auth.js';
 
 export const listings = Router();
 
@@ -22,11 +23,12 @@ async function ensureUser(wallet, handle) {
 
 // --- CREATE a listing --------------------------------------------------------
 // POST /api/listings
-// body: { kind, category, title, description, price_usdc, seller_wallet, handle,
-//         delivery_days?, asset?: { asset_type, value } }   (asset only for digital)
-listings.post('/', async (req, res) => {
+// body: { kind, category, title, description, price_usdc, delivery_days?,
+//         asset?: { asset_type, value } }   (asset only for digital)
+// The seller is ALWAYS the signed-in wallet — payouts must never be set by the body.
+listings.post('/', requireAuth, async (req, res) => {
   try {
-    const b = req.body || {};
+    const b = { ...(req.body || {}), seller_wallet: req.wallet };
     if (!KINDS.has(b.kind))                 return res.status(400).json({ error: 'invalid kind' });
     if (!b.title || !b.description)         return res.status(400).json({ error: 'title and description required' });
     if (!b.category)                        return res.status(400).json({ error: 'category required' });
@@ -41,14 +43,17 @@ listings.post('/', async (req, res) => {
       return res.status(400).json({ error: 'delivery_days required for physical/service' });
     }
 
-    const sellerId = await ensureUser(b.seller_wallet, b.handle);
+    // Identity comes from the signed-in profile, never from the request body.
+    const { rows: urows } = await q(`SELECT id, handle FROM users WHERE lower(wallet) = $1`, [req.wallet]);
+    const sellerId = urows[0]?.id || await ensureUser(req.wallet, null);
+    const handle   = urows[0]?.handle || null;
 
     const { rows } = await q(
       `INSERT INTO listings
-         (seller_id, seller_wallet, kind, category, title, description, price_usdc, delivery_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         (seller_id, seller_wallet, handle, kind, category, title, description, price_usdc, delivery_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id, kind, category, title, description, price_usdc, delivery_days, status, created_at`,
-      [sellerId, b.seller_wallet, b.kind, b.category, b.title, b.description,
+      [sellerId, b.seller_wallet, handle, b.kind, b.category, b.title, b.description,
        b.price_usdc, b.kind === 'digital' ? null : b.delivery_days]
     );
     const listing = rows[0];
@@ -117,8 +122,13 @@ listings.get('/:id', async (req, res) => {
   res.json({ listing: rows[0] });
 });
 
-// --- UPDATE / unpublish (seller only — enforce with wallet-auth middleware) --
-listings.patch('/:id', async (req, res) => {
+// --- UPDATE / unpublish (seller only) ---------------------------------------
+listings.patch('/:id', requireAuth, async (req, res) => {
+  const owner = await q(`SELECT seller_wallet FROM listings WHERE id = $1`, [req.params.id]);
+  if (!owner.rows[0]) return res.status(404).json({ error: 'not found' });
+  if (String(owner.rows[0].seller_wallet).toLowerCase() !== req.wallet)
+    return res.status(403).json({ error: 'not your listing' });
+
   const allowed = ['title', 'description', 'price_usdc', 'category', 'delivery_days', 'status'];
   const sets = [], params = [];
   for (const k of allowed) if (k in (req.body || {})) { params.push(req.body[k]); sets.push(`${k} = $${params.length}`); }

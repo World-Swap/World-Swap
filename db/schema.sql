@@ -28,6 +28,20 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_wallet_uidx ON users (lower(wallet));
 
+-- Profile fields + sign-in nonces (added with SIWE auth).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio          text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_seed  text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+CREATE UNIQUE INDEX IF NOT EXISTS users_handle_uidx ON users (lower(handle)) WHERE handle IS NOT NULL;
+
+-- One-time nonces for Sign-In With Ethereum. Rows are deleted on use.
+CREATE TABLE IF NOT EXISTS auth_nonces (
+  nonce      text PRIMARY KEY,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS auth_nonces_created_idx ON auth_nonces (created_at);
+
 -- ---------------------------------------------------------------------------
 -- Listings (a product OR a service offer)
 --   kind: 'digital'  -> instant delivery, has a sealed digital_asset

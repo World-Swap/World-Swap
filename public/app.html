@@ -28,6 +28,19 @@
   .txlink:hover{color:var(--teal);border-color:var(--teal)}
   .contract-link{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted-2);text-decoration:none}
   .contract-link:hover{color:var(--teal)}
+  .pcard{background:var(--ink-2);border:1px solid var(--line);border-radius:14px;padding:22px;max-width:620px}
+  .prow{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+  .pav{width:52px;height:52px;border-radius:50%;flex:none;background:linear-gradient(135deg,var(--teal),var(--gold))}
+  .pname{font-size:19px;font-weight:600}
+  .pwallet{font-size:12px;color:var(--muted-2)}
+  .pstats{display:flex;gap:18px;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+  .pstat{font-family:"IBM Plex Mono",monospace}
+  .pstat b{display:block;font-size:17px;color:var(--teal)}
+  .pstat span{font-size:11px;color:var(--muted-2)}
+  .perr{color:var(--danger);font-size:13px;min-height:18px;margin:4px 0}
+  .sell-as{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--teal);background:var(--ink-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .seller-link{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted-2)}
+  .seller-link:hover{color:var(--teal);border-bottom-color:var(--teal)}
   .view{display:none;padding:30px 0 90px}.view.active{display:block}
   .head{margin-bottom:20px}.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--teal);margin-bottom:7px}
   h1{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:28px;letter-spacing:-.02em;margin:0 0 7px}.sub{color:var(--muted);margin:0;font-size:15px;max-width:64ch}
@@ -100,6 +113,7 @@
     <button class="tab active" data-view="browse">Browse</button>
     <button class="tab" data-view="sell">Sell / Offer</button>
     <button class="tab" data-view="orders">Orders <span class="pip" id="pip" style="display:none">0</span></button>
+    <button class="tab" data-view="profile" id="tab-profile" style="display:none">Profile</button>
   </div>
   <div class="nav-right"><span class="tmode" id="tmode" style="display:none">TEST MODE</span><button class="connect-btn" id="connectBtn" style="display:none">Connect Wallet</button><span class="wallet" id="myWallet">wallet: —</span></div>
 </div></nav>
@@ -125,7 +139,7 @@
     <div class="f"><label for="title">Title</label><input id="title" maxlength="90"></div>
     <div class="f"><label for="desc">Description</label><textarea id="desc" maxlength="500"></textarea></div>
     <div class="row2"><div class="f"><label for="cat">Category</label><select id="cat"></select></div><div class="f"><label for="price">Price <span>(USDC)</span></label><input id="price" type="number" min="0.01" step="0.01"></div></div>
-    <div class="row2"><div class="f"><label for="handle">Name / handle</label><input id="handle" maxlength="40"></div><div class="f"><label for="seller">Wallet <span>(gets 99.5%)</span></label><input id="seller" class="mono" placeholder="0x…" spellcheck="false"></div></div>
+    <div class="f"><label>Selling as</label><div id="sellAs" class="sell-as">Sign in to list an item.</div></div>
     <div class="f" id="daysWrap" style="display:none"><label for="days">Est. delivery <span>(days)</span></label><input id="days" type="number" min="1" step="1"></div>
     <div class="f" id="digWrap">
       <label>The digital good <span>— sealed until purchase</span></label>
@@ -142,6 +156,21 @@
   <div class="head"><div class="eyebrow">Escrow &amp; delivery</div><h1>Your orders.</h1><p class="sub">Funds sit in escrow until the job's done. In this trial you can act as buyer and seller to walk the full flow.</p><div id="contractLink" style="margin-top:8px"></div></div>
   <div class="escrow-summary" id="escrowSummary" style="display:none"><div><div class="big" id="heldTotal">0.00 USDC</div><div class="lbl">locked in escrow — released only when you confirm</div></div></div>
   <div id="ordersList"></div>
+</div></div>
+
+<div class="view" id="v-profile"><div class="wrap">
+  <div class="head"><div class="eyebrow">Identity</div><h1>Your profile.</h1><p class="sub">A wallet address tells a buyer nothing. This is what they see before they trust you with money.</p></div>
+  <div class="pcard">
+    <div class="prow"><div class="pav" id="pAvatar"></div><div><div class="pname" id="pName">—</div><div class="pwallet mono" id="pWallet">—</div></div></div>
+    <div class="pstats" id="pStats"></div>
+    <div class="f"><label for="pHandle">Handle <span>(3–20 chars: a–z, 0–9, _ )</span></label><input id="pHandle" maxlength="20" placeholder="quiverian" spellcheck="false"></div>
+    <div class="f"><label for="pDisplay">Display name</label><input id="pDisplay" maxlength="50" placeholder="Ian S."></div>
+    <div class="f"><label for="pBio">Bio <span>(what you sell / who you are)</span></label><textarea id="pBio" maxlength="300" rows="3" placeholder="Surfboard guides and disc golf training."></textarea></div>
+    <div class="f"><label for="pEmail">Email <span>(optional — order alerts only, never public)</span></label><input id="pEmail" type="email" maxlength="120" placeholder="you@email.com" spellcheck="false"></div>
+    <div class="perr" id="pErr"></div>
+    <button class="m-btn primary" id="pSave">Save profile</button>
+    <a class="contract-link" id="pView" href="#" target="_blank" style="margin-left:14px;display:none">view public profile ↗</a>
+  </div>
 </div></div>
 
 <div class="overlay" id="overlay"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
@@ -162,9 +191,12 @@ const kindLabel={digital:'Digital',physical:'Physical',service:'Service'};
 const CATS={goods:['Electronics','Collectibles','Home & Garden','Fashion','Toys & Hobbies','Digital'],service:['Web Development','Design','Writing','Marketing','Video & Animation','Consulting']};
 const dtypeLabel={key:'License key',link:'Download link',text:'Secret'};
 
-let me=localStorage.getItem('ws_wallet'); if(!isAddr(me)){me='0x'+hex(40);localStorage.setItem('ws_wallet',me);}
-$('#myWallet').textContent='wallet: '+short(me);
+// Identity comes from the server session — the browser never decides who you are.
+let me=null;            // signed-in wallet (lower-case) or null
+let PROFILE=null;       // { handle, display_name, bio, email, rep_score, ... }
 let TEST=true;
+// TEST_MODE only: a stable fake wallet, since the demo wallet cannot sign anything.
+function demoWallet(){let w=localStorage.getItem('ws_wallet');if(!isAddr(w)){w='0x'+hex(40);localStorage.setItem('ws_wallet',w);}return w;}
 let CHAIN={};          // {escrow, token, chain_id} from /api/config when not in test mode
 
 // ---- on-chain (Base Sepolia) ----
@@ -184,13 +216,67 @@ async function ensureWallet(){
   }
   const provider=new ethers.BrowserProvider(eth);
   const signer=await provider.getSigner();
-  me=await signer.getAddress(); localStorage.setItem('ws_wallet',me); $('#myWallet').textContent='wallet: '+short(me);
+  const addr=await signer.getAddress();
+  // If the wallet switched accounts after sign-in, the on-chain sender would no
+  // longer match the buyer the contract expects. Catch it here, not mid-payment.
+  if(me&&addr.toLowerCase()!==me.toLowerCase())
+    throw new Error(`Your wallet is on ${short(addr)} but you're signed in as ${short(me)}. Switch accounts in your wallet, or sign out and back in.`);
   return signer;
 }
 const spin=msg=>`<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">${esc(msg)}</div></div>`;
 
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800);}
-async function api(path,opts){const r=await fetch(API+path,{headers:{'Content-Type':'application/json'},...opts});if(!r.ok){let e='request failed';try{e=(await r.json()).error||e;}catch{}throw new Error(e);}return r.status===204?null:r.json();}
+async function api(path,opts){const r=await fetch(API+path,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...opts});if(r.status===401){signedOut();throw new Error('Sign in to continue.');}if(!r.ok){let e='request failed';try{e=(await r.json()).error||e;}catch{}throw new Error(e);}return r.status===204?null:r.json();}
+
+// ---- sign-in (SIWE) -------------------------------------------------------
+function siweMessage(addr,nonce){return `${location.host} wants you to sign in with your Ethereum account:
+${addr}
+
+Sign in to World Swap. This only proves you own this wallet — it costs nothing and moves no funds.
+
+URI: ${location.origin}
+Version: 1
+Chain ID: 84532
+Nonce: ${nonce}
+Issued At: ${new Date().toISOString()}`;}
+
+async function doSignIn(){
+  const btn=$('#connectBtn');const was=btn.textContent;btn.textContent='Signing in…';btn.disabled=true;
+  try{
+    let r;
+    if(TEST){
+      r=await api('/api/auth/dev',{method:'POST',body:JSON.stringify({wallet:demoWallet()})});
+    }else{
+      const signer=await ensureWallet();
+      const addr=await signer.getAddress();
+      const {nonce}=await api('/api/auth/nonce');
+      const message=siweMessage(addr,nonce);
+      const signature=await signer.signMessage(message);
+      r=await api('/api/auth/verify',{method:'POST',body:JSON.stringify({message,signature})});
+    }
+    me=r.wallet;PROFILE=r.profile||null;paintIdentity();renderBrowse();refreshPip();
+    toast(PROFILE&&PROFILE.handle?`Signed in as @${PROFILE.handle}`:'Signed in');
+    if(!PROFILE||!PROFILE.handle){switchView('profile');toast('Pick a handle so buyers know who you are');}
+  }catch(e){toast(txErr(e));}
+  finally{btn.disabled=false;if(!me)btn.textContent=was;}
+}
+async function signOut(){try{await api('/api/auth/logout',{method:'POST'});}catch{}signedOut();switchView('browse');toast('Signed out');}
+function signedOut(){me=null;PROFILE=null;paintIdentity();}
+function paintIdentity(){
+  const btn=$('#connectBtn'),w=$('#myWallet'),tab=$('#tab-profile');
+  btn.style.display='inline-block';
+  if(me){
+    w.style.display='inline-block';
+    w.textContent=PROFILE&&PROFILE.handle?('@'+PROFILE.handle):('wallet: '+short(me));
+    btn.textContent='Sign out';btn.classList.add('connected');btn.onclick=signOut;
+    if(tab)tab.style.display='';
+  }else{
+    w.style.display='none';
+    btn.textContent='Sign in';btn.classList.remove('connected');btn.onclick=doSignIn;
+    if(tab)tab.style.display='none';
+  }
+}
+function needAuth(){if(!me){toast('Sign in first');doSignIn();return true;}return false;}
 
 // ---- browse ----
 let filter={kind:'all',cat:'',q:''};
@@ -203,7 +289,7 @@ async function renderBrowse(){
   if(!items.length){grid.innerHTML='<div class="empty">No listings match. Try <b>Sell / Offer</b>.</div>';return;}
   grid.innerHTML=items.map(l=>{const svc=l.kind==='service';const meta=l.kind==='digital'?'Instant delivery':(svc?`~${l.delivery_days||'—'}d turnaround · escrow`:`Ships ~${l.delivery_days||'—'}d · escrow`);
     return `<div class="card"><div class="pills"><span class="pill ${l.kind}">${kindLabel[l.kind]}</span><span class="pill">${esc(l.category)}</span></div>
-      <h3>${esc(l.title)}</h3><p class="desc">${esc(l.description)}</p><div class="meta">${esc(meta)} · by ${esc(l.handle||short(l.seller_wallet))}</div>
+      <h3>${esc(l.title)}</h3><p class="desc">${esc(l.description)}</p><div class="meta">${esc(meta)} · by <a class="seller-link" href="#" onclick="event.preventDefault();showProfile('${esc(l.handle||l.seller_wallet)}')">${esc(l.handle||short(l.seller_wallet))}</a></div>
       <div class="foot"><div class="price">${fmt(l.price_usdc)} <small>USDC</small></div><button class="act ${svc?'svc':''}" data-buy="${esc(l.id)}">${svc?'Hire':'Buy'}</button></div></div>`;}).join('');
 }
 $('#kindSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;filter.kind=b.dataset.k;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderBrowse();});
@@ -217,6 +303,7 @@ overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 async function openBuy(id){
+  if(needAuth())return;
   let l;try{l=(await api('/api/listings/'+id)).listing;}catch(e){return toast(e.message);}
   const fee=l.price_usdc*FEE,net=l.price_usdc-fee,svc=l.kind==='service',instant=l.kind==='digital';
   modal.innerHTML=`<div class="modal-head"><div><h3>${instant?'Complete purchase':(svc?'Hire & fund escrow':'Buy & fund escrow')}</h3><p class="m-item">${esc(l.title)}</p></div><button class="close">×</button></div>
@@ -233,7 +320,7 @@ async function pay(l){
   if(!TEST) return payOnchain(l);
   const stage=$('#stage');stage.innerHTML='<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Settling…</div></div>';
   try{
-    const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id,buyer_wallet:me})});
+    const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id})});
     const r=await api('/api/orders/'+ord.order_id+'/pay',{method:'POST',body:JSON.stringify({})});
     if(l.kind==='digital'&&r.state==='released'){await showDelivery(ord.order_id,l);}
     else{stage.innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#3FD8C7" stroke-width="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" stroke="#3FD8C7" stroke-width="1.8"/></svg></div><h4>${fmt(l.price_usdc)} USDC in escrow</h4><p class="p">${l.kind==='service'?'Release the funds once you approve the work.':'Release once you confirm the item arrived.'}</p><button class="m-btn primary" id="toO">Track in Orders</button></div>`;modal.querySelector('#toO').onclick=()=>{closeModal();switchView('orders');};}
@@ -244,7 +331,7 @@ async function payOnchain(l){
   const stage=$('#stage');stage.innerHTML=spin('Connecting wallet…');
   try{
     const signer=await ensureWallet();
-    const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id,buyer_wallet:me})});
+    const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id})});
     if(!ord.token||!ord.escrow) throw new Error('On-chain addresses not configured on the server.');
     const amount=ethers.parseUnits(String(l.price_usdc),6);           // USDC has 6 decimals
     const usdc=new ethers.Contract(ord.token,ERC20_ABI,signer);
@@ -275,7 +362,7 @@ async function releaseOnchain(o){
   await api('/api/orders/'+o.id+'/verify',{method:'POST',body:JSON.stringify({tx_hash:tx.hash})});
 }
 async function showDelivery(orderId,l){
-  let d=null;try{d=(await api(`/api/orders/${orderId}/deliverable?wallet=${me}`)).delivery;}catch(e){}
+  let d=null;try{d=(await api(`/api/orders/${orderId}/deliverable`)).delivery;}catch(e){}
   let goods='';
   if(d&&d.type==='file'){goods=`<div class="goods"><div class="glabel">Your file</div><a class="dl" href="${esc(d.url)}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Download</a></div>`;}
   else if(d){goods=`<div class="goods"><div class="glabel">${esc(dtypeLabel[d.type]||'Item')}</div><div class="secret" id="sv">${esc(d.value)}</div><button class="copy" id="cp">Copy</button></div>`;}
@@ -300,7 +387,9 @@ function steps(o){const flow=FLOW[o.kind];if(!flow)return'';const order=flow.map
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;font-family:'IBM Plex Mono',monospace;font-size:11px">${flow.map((f,i)=>{const c=(i<idx||o.state==='released')?'#3FD8C7':(i===idx?'#F0B537':'#666CA2');return `<span style="color:${c}">${i>0?'→ ':''}${esc(f[1])}</span>`;}).join('')}</div>`;}
 async function renderOrders(){
   const list=$('#ordersList');const cl=$('#contractLink');if(cl){cl.innerHTML=(!TEST&&CHAIN.escrow)?`<a class="contract-link" href="https://sepolia.basescan.org/address/${esc(CHAIN.escrow)}" target="_blank">escrow contract: ${short(CHAIN.escrow)} ↗</a>`:'';}
-  let data;try{data=await api('/api/orders?wallet='+me);}catch(e){list.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return;}
+  $('#escrowSummary').style.display='none';
+  if(!me){list.innerHTML='<div class="empty">Sign in to see your orders.</div>';return;}
+  let data;try{data=await api('/api/orders');}catch(e){list.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return;}
   const orders=data.orders||[];const activeStates=['funded','shipped','in_progress','submitted','disputed'];
   const held=orders.filter(o=>activeStates.includes(o.state)).reduce((s,o)=>s+Number(o.amount_usdc),0);
   $('#escrowSummary').style.display=held>0?'flex':'none';$('#heldTotal').textContent=fmt(held)+' USDC';
@@ -312,7 +401,7 @@ async function renderOrders(){
       ${active?`<div class="held"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="#3FD8C7" stroke-width="1.7"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#3FD8C7" stroke-width="1.7"/></svg>${fmt(o.amount_usdc)} USDC held in escrow</div>`:''}
       ${instant?(o.state==='released'?`<button class="oa" data-open="${o.id}">Open goods</button>`:''):steps(o)+actions(o)}${chainlinks}</div>`;}).join('');
 }
-async function refreshPip(){try{const d=await api('/api/orders?wallet='+me);const n=(d.orders||[]).filter(o=>['funded','shipped','in_progress','submitted','disputed'].includes(o.state)).length;const p=$('#pip');p.style.display=n?'grid':'none';p.textContent=n;}catch{}}
+async function refreshPip(){const p=$('#pip');if(!me){p.style.display='none';return;}try{const d=await api('/api/orders');const n=(d.orders||[]).filter(o=>['funded','shipped','in_progress','submitted','disputed'].includes(o.state)).length;p.style.display=n?'grid':'none';p.textContent=n;}catch{}}
 
 async function doAct(id,act,el){
   try{
@@ -320,7 +409,7 @@ async function doAct(id,act,el){
     else if(act==='start'){await api('/api/orders/'+id+'/start',{method:'POST',body:JSON.stringify({})});}
     else if(act==='submit'){const d=prompt('Link/note for the deliverable:','https://drive.example/'+hex(5));await api('/api/orders/'+id+'/submit',{method:'POST',body:JSON.stringify({deliverable:d})});}
     else if(act==='changes'){await api('/api/orders/'+id+'/changes',{method:'POST',body:JSON.stringify({})});}
-    else if(act==='release'){ if(TEST){await api('/api/orders/'+id+'/release',{method:'POST',body:JSON.stringify({})});toast('Funds released');} else { const o=(await api('/api/orders?wallet='+me)).orders.find(x=>x.id===id); await releaseOnchain(o); toast('Released on-chain'); } }
+    else if(act==='release'){ if(TEST){await api('/api/orders/'+id+'/release',{method:'POST',body:JSON.stringify({})});toast('Funds released');} else { const o=(await api('/api/orders')).orders.find(x=>x.id===id); await releaseOnchain(o); toast('Released on-chain'); } }
     else if(act==='dispute'){if(!confirm('Open a dispute? Funds stay locked until resolved.'))return;await api('/api/orders/'+id+'/dispute',{method:'POST',body:JSON.stringify({opened_by:me})});}
     else if(act==='resolve'){await api('/api/orders/'+id+'/resolve',{method:'POST',body:JSON.stringify({release_to_seller:el.dataset.to==='1'})});}
     renderOrders();refreshPip();
@@ -335,7 +424,7 @@ document.addEventListener('click',e=>{
 async function openInstantAgain(orderId){
   overlay.classList.add('show');modal.innerHTML=`<div class="modal-head"><div></div><button class="close">×</button></div><div id="stage"></div>`;
   modal.querySelector('.close').onclick=closeModal;
-  try{const d=(await api(`/api/orders/${orderId}/deliverable?wallet=${me}`)).delivery;await showDeliveryInline(d);}catch(e){$('#stage').innerHTML=`<div style="color:var(--danger);padding:10px">${esc(e.message)}</div>`;}
+  try{const d=(await api(`/api/orders/${orderId}/deliverable`)).delivery;await showDeliveryInline(d);}catch(e){$('#stage').innerHTML=`<div style="color:var(--danger);padding:10px">${esc(e.message)}</div>`;}
 }
 async function showDeliveryInline(d){
   let goods='';if(d&&d.type==='file'){goods=`<div class="goods"><div class="glabel">Your file</div><a class="dl" href="${esc(d.url)}">Download</a></div>`;}
@@ -347,29 +436,90 @@ async function showDeliveryInline(d){
 // ---- sell ----
 let sellKind='digital';
 function catsFor(k){const arr=k==='service'?CATS.service:CATS.goods;$('#cat').innerHTML=arr.map(c=>`<option>${esc(c)}</option>`).join('');if(k==='digital')$('#cat').value='Digital';}
-function syncSell(){$('#digWrap').style.display=sellKind==='digital'?'block':'none';$('#daysWrap').style.display=sellKind==='digital'?'none':'block';catsFor(sellKind);}
+function syncSell(){$('#digWrap').style.display=sellKind==='digital'?'block':'none';$('#daysWrap').style.display=sellKind==='digital'?'none':'block';catsFor(sellKind);
+  const s=$('#sellAs');if(s)s.innerHTML=me?`${PROFILE&&PROFILE.handle?'@'+esc(PROFILE.handle):'no handle yet'} · ${esc(short(me))} <span style="color:var(--muted-2)">— gets 99.5%</span>`:'Sign in to list an item — payouts go to the wallet you sign in with.';}
 $('#kindSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;sellKind=b.dataset.kind;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));syncSell();});
 function updSplit(){const p=parseFloat($('#price').value)||0,f=p*FEE;$('#spPay').textContent=fmt(p);$('#spFee').textContent=fmt(f);$('#spNet').textContent=fmt(p-f);}
 $('#price').addEventListener('input',updSplit);
 $('#listBtn').addEventListener('click',async()=>{
   const err=$('#ferr');err.textContent='';
-  const title=$('#title').value.trim(),description=$('#desc').value.trim(),category=$('#cat').value,price_usdc=parseFloat($('#price').value),handle=$('#handle').value.trim(),seller_wallet=$('#seller').value.trim();
+  if(!me){err.textContent='Sign in first — your listing pays out to the wallet you sign in with.';return doSignIn();}
+  const title=$('#title').value.trim(),description=$('#desc').value.trim(),category=$('#cat').value,price_usdc=parseFloat($('#price').value);
   if(!title)return err.textContent='Add a title.';if(!description)return err.textContent='Add a description.';
-  if(!(price_usdc>0))return err.textContent='Price must be > 0.';if(!handle)return err.textContent='Add a name/handle.';
-  if(!isAddr(seller_wallet))return err.textContent='Valid wallet (0x + 40 hex) required.';
-  const body={kind:sellKind,category,title,description,price_usdc,handle,seller_wallet};
+  if(!(price_usdc>0))return err.textContent='Price must be > 0.';
+  const body={kind:sellKind,category,title,description,price_usdc};
   if(sellKind==='digital'){const v=$('#payload').value.trim();if(!v)return err.textContent='Add the key/link/secret.';body.asset={asset_type:$('#dtype').value,value:v};}
   else{const d=parseInt($('#days').value,10);body.delivery_days=d>0?d:7;}
   try{await api('/api/listings',{method:'POST',body:JSON.stringify(body)});}catch(e){return err.textContent=e.message;}
-  ['title','desc','price','handle','seller','payload','days'].forEach(id=>{const el=$('#'+id);if(el)el.value='';});updSplit();
+  ['title','desc','price','payload','days'].forEach(id=>{const el=$('#'+id);if(el)el.value='';});updSplit();
   filter={kind:'all',cat:'',q:''};$('#search').value='';$('#catFilter').value='';[...$('#kindSeg').children].forEach(x=>x.classList.toggle('on',x.dataset.k==='all'));
   switchView('browse');toast('Listing published');
 });
 
 // ---- views ----
-function switchView(v){document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));$('#v-'+v).classList.add('active');if(v==='browse')renderBrowse();if(v==='orders')renderOrders();window.scrollTo(0,0);}
+// ---- profile --------------------------------------------------------------
+function avatarFor(seed){let h=0;for(const c of String(seed||'')) h=(h*31+c.charCodeAt(0))>>>0;
+  const a=h%360,b=(h>>8)%360;return `linear-gradient(135deg,hsl(${a} 70% 55%),hsl(${b} 70% 45%))`;}
+async function renderProfile(){
+  if(!me)return switchView('browse');
+  $('#pWallet').textContent=me;
+  $('#pAvatar').style.background=avatarFor(PROFILE?.avatar_seed||me);
+  $('#pName').textContent=PROFILE?.display_name||(PROFILE?.handle?'@'+PROFILE.handle:'Unnamed');
+  $('#pHandle').value=PROFILE?.handle||'';
+  $('#pDisplay').value=PROFILE?.display_name||'';
+  $('#pBio').value=PROFILE?.bio||'';
+  $('#pEmail').value=PROFILE?.email||'';
+  const v=$('#pView');
+  if(PROFILE?.handle){v.style.display='inline';v.href='/app#u/'+PROFILE.handle;v.onclick=e=>{e.preventDefault();showProfile(PROFILE.handle);};}
+  else v.style.display='none';
+  try{const d=await api('/api/profile/'+me);
+    $('#pStats').innerHTML=`<div class="pstat"><b>${d.stats.completed}</b><span>completed sales</span></div>
+      <div class="pstat"><b>${fmt(d.stats.volume)}</b><span>USDC volume</span></div>
+      <div class="pstat"><b>${d.profile.rep_score}</b><span>reputation</span></div>`;
+  }catch{}
+}
+$('#pSave')?.addEventListener('click',async()=>{
+  const err=$('#pErr');err.textContent='';
+  const body={handle:$('#pHandle').value.trim(),display_name:$('#pDisplay').value.trim(),bio:$('#pBio').value.trim(),email:$('#pEmail').value.trim()};
+  try{const r=await api('/api/profile/me',{method:'PUT',body:JSON.stringify(body)});
+    PROFILE=r.profile;paintIdentity();renderProfile();renderBrowse();toast('Profile saved');
+  }catch(e){err.textContent=e.message;}
+});
+// Public profile of any seller, by handle or wallet.
+async function showProfile(id){
+  modal.innerHTML=`<div class="m-body">${spin('Loading profile…')}</div>`;overlay.classList.add('show');
+  const body=h=>{modal.innerHTML=`<div class="m-body">${h}<div style="margin-top:18px"><button class="m-btn" id="pClose">Close</button></div></div>`;$('#pClose').onclick=closeModal;};
+  try{
+    const d=await api('/api/profile/'+encodeURIComponent(id));
+    const p=d.profile;
+    body(`<div class="prow"><div class="pav" style="background:${avatarFor(p.avatar_seed||p.wallet)}"></div>
+      <div><div class="pname">${esc(p.display_name||(p.handle?'@'+p.handle:short(p.wallet)))}</div>
+      <div class="pwallet mono">${p.handle?'@'+esc(p.handle)+' · ':''}${short(p.wallet)}</div></div></div>
+      ${p.bio?`<p class="p" style="margin:12px 0">${esc(p.bio)}</p>`:''}
+      <div class="pstats" style="margin-top:14px">
+        <div class="pstat"><b>${d.stats.completed}</b><span>completed sales</span></div>
+        <div class="pstat"><b>${fmt(d.stats.volume)}</b><span>USDC volume</span></div>
+        <div class="pstat"><b>${p.created_at?new Date(p.created_at).getFullYear():'—'}</b><span>member since</span></div>
+      </div>
+      ${p.unclaimed?`<p class="p" style="color:var(--muted-2);font-size:12px;margin-top:10px">This wallet hasn't set up a profile yet.</p>`:''}
+      ${d.listings.length?`<div style="margin-top:6px"><div class="lbl" style="margin-bottom:8px">Active listings</div>${
+        d.listings.map(l=>`<div class="crow"><span class="k">${esc(l.title)}</span><span class="v">${fmt(l.price_usdc)} USDC</span></div>`).join('')}</div>`:''}`);
+  }catch(e){body(`<div style="color:var(--danger)">${esc(e.message)}</div>`);}
+}
+window.showProfile=showProfile;
+
+function switchView(v){
+document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));$('#v-'+v).classList.add('active');if(v==='browse')renderBrowse();if(v==='orders')renderOrders();if(v==='profile')renderProfile();if(v==='sell')syncSell();window.scrollTo(0,0);}
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchView(t.dataset.view)));
 
-(async()=>{try{const c=await api('/api/config');TEST=c.test_mode;CHAIN={escrow:c.escrow,token:c.token,chain_id:c.chain_id};const tm=$('#tmode');tm.style.display='inline-block';if(!TEST){tm.textContent='BASE SEPOLIA';tm.style.color='#3FD8C7';const cb=$('#connectBtn');cb.style.display='inline-block';cb.onclick=async()=>{cb.textContent='Connecting…';try{await ensureWallet();cb.textContent='Connected';cb.classList.add('connected');}catch(e){cb.textContent='Connect Wallet';toast(txErr(e));}};}}catch{}populateCat();catsFor('digital');syncSell();updSplit();renderBrowse();refreshPip();})();
+(async()=>{
+  try{const c=await api('/api/config');TEST=c.test_mode;CHAIN={escrow:c.escrow,token:c.token,chain_id:c.chain_id};
+    const tm=$('#tmode');tm.style.display='inline-block';
+    if(!TEST){tm.textContent='BASE SEPOLIA';tm.style.color='#3FD8C7';}
+  }catch{}
+  try{const s=await api('/api/auth/me');if(s.wallet){me=s.wallet;PROFILE=s.profile;}}catch{}
+  paintIdentity();
+  populateCat();catsFor('digital');syncSell();updSplit();renderBrowse();refreshPip();
+})();
 })();
 </script>

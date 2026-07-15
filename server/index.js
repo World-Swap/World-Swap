@@ -5,12 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { listings, waitlist } from './listings.js';
 import { payments } from './payments.js';
+import { auth } from './auth.js';
+import { profiles } from './profiles.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set('trust proxy', 1);            // Render terminates TLS in front of us
 app.use(express.json({ limit: '4mb' }));
 
 // API
+app.use('/api/auth',     auth);
+app.use('/api/profile',  profiles);
 app.use('/api/listings', listings);
 app.use('/api/orders',   payments);
 app.use('/api/waitlist', waitlist);
