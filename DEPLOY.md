@@ -1,30 +1,126 @@
-// server/seed.js — populate demo listings for trials. Run once: npm run seed
-import { q } from './config.js';
-import { sealSecret } from './crypto.js';
+# DEPLOY — get World Swap live for trials
 
-const rnd = () => '0x' + Array.from({length:40},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+Goal: a working, testable marketplace on your own domain, today. It runs in
+**TEST_MODE** (settlement mocked, no wallets/contracts needed) so you can trial
+the whole flow. Flipping to real on-chain USDC is one env var later.
 
-const L = [
-  {kind:'digital',category:'Digital',title:'Lightroom preset pack — 40 cinematic presets',desc:'Warm, filmic presets for Lightroom Classic & mobile. Instant download.',price:18,handle:'tonecraft',asset:{asset_type:'link',value:'https://worldswap.app/dl/presets-demo'}},
-  {kind:'digital',category:'Digital',title:'Indie strategy game — Steam key',desc:'Region-free retail Steam key, activates worldwide. Instant delivery.',price:24.5,handle:'keyvault',asset:{asset_type:'key',value:'STEAM-8F3K-Q2LM-77XZ-DEMO'}},
-  {kind:'physical',category:'Electronics',title:'Vintage film camera — Canon AE-1',desc:'Serviced 35mm SLR with 50mm f/1.8 lens. Ships worldwide, tracked.',price:210,handle:'analoglab',days:5},
-  {kind:'physical',category:'Fashion',title:'Handmade leather messenger bag',desc:'Full-grain leather, brass hardware, made to order.',price:165,handle:'stitchandhide',days:14},
-  {kind:'service',category:'Web Development',title:'I will build your React + Node web app',desc:'Full-stack build: responsive front end, REST API, Postgres, deployed. Escrow released on approval.',price:900,handle:'pixelforge',days:14},
-  {kind:'service',category:'Design',title:'Logo & brand identity kit',desc:'Custom logo, color system, type pairing, mini brand sheet. 3 concepts, 2 revisions.',price:280,handle:'markmaker',days:6},
-  {kind:'service',category:'Writing',title:'SEO blog writing — 4 articles',desc:'Four 1,200-word researched, keyword-optimized articles as Google Docs.',price:160,handle:'inkwell',days:5},
-];
+One deployable unit: a single Express web service that serves both the API and
+the frontend (landing at `/`, marketplace at `/app`).
 
-for (const l of L) {
-  const seller = rnd();
-  const { rows } = await q(
-    `INSERT INTO listings (seller_wallet, handle, kind, category, title, description, price_usdc, delivery_days)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [seller, l.handle, l.kind, l.category, l.title, l.desc, l.price, l.kind==='digital'?null:l.days]);
-  if (l.kind === 'digital') {
-    const { ciphertext } = await sealSecret(l.asset);
-    await q(`INSERT INTO digital_assets (listing_id, asset_type, secret_ciphertext) VALUES ($1,$2,$3)`,
-      [rows[0].id, l.asset.asset_type, ciphertext]);
-  }
-}
-console.log(`seeded ${L.length} listings`);
-process.exit(0);
+---
+
+## 1. Push to GitHub (World-Swap org)
+
+```bash
+cd world-swap
+git init && git add . && git commit -m "World Swap: marketplace + escrow (test mode)"
+gh repo create World-Swap/world-swap --private --source=. --push
+# or create the repo in the UI and: git remote add origin ... && git push -u origin main
+```
+
+## 2. Database (Neon)
+
+1. Create a Neon project → copy the connection string (`DATABASE_URL`).
+2. Load the schema and demo listings:
+
+```bash
+export DATABASE_URL="postgres://...neon.tech/...?sslmode=require"
+npm install
+npm run migrate      # runs db/schema.sql
+npm run seed         # ~7 demo listings so it isn't empty
+```
+
+## 3. Deploy the web service (Render)
+
+Render → **New → Web Service** → connect the repo. Settings:
+
+| Field           | Value                 |
+|-----------------|-----------------------|
+| Runtime         | Node                  |
+| Build command   | `npm install`         |
+| Start command   | `npm start`           |
+| Instance        | Starter is fine       |
+
+**Environment variables:**
+
+```
+DATABASE_URL          = <your Neon string>
+TEST_MODE             = true
+ASSET_ENCRYPTION_KEY  = <32+ random chars>     # openssl rand -hex 24
+```
+
+(`PORT` is provided by Render automatically.) Deploy → you get
+`https://world-swap.onrender.com`. Open it: landing at `/`, click **Enter
+marketplace** → list, buy, hire, walk the escrow lifecycle. That's your trial.
+
+> Tip: if you'd rather Render read config from the repo, a `render.yaml` blueprint
+> is included — **New → Blueprint** and it wires the web service for you.
+
+## 4. Point your domain at it
+
+In the Render service → **Settings → Custom Domains → Add**. Add both:
+
+- `worldswap.app` (apex)
+- `www.worldswap.app`
+
+Render shows you the DNS records to create. At your registrar (GoDaddy,
+Namecheap, Cloudflare — same idea everywhere):
+
+| Type            | Host / Name | Value                          |
+|-----------------|-------------|--------------------------------|
+| CNAME           | `www`       | `world-swap.onrender.com`      |
+| ALIAS / ANAME*  | `@` (apex)  | `world-swap.onrender.com`      |
+
+\* If your registrar has no ALIAS/ANAME for the apex, use the A record IP Render
+displays instead, or point the apex to `www` with a forward. Cloudflare and
+Namecheap support ALIAS/ANAME; GoDaddy uses "Forwarding" for the apex.
+
+SSL is automatic — Render provisions a certificate once DNS resolves (minutes to
+a couple of hours). Then `https://worldswap.app` serves the site.
+
+No app code changes are needed for the domain: the frontend calls the API on the
+same origin, so it follows the domain automatically.
+
+---
+
+## 5. When you're ready for real crypto
+
+Trials done in test mode? Switch to on-chain USDC:
+
+1. **Deploy the contract** to Base Sepolia (testnet first):
+   ```bash
+   forge install OpenZeppelin/openzeppelin-contracts
+   # deploy SwapEscrow(USDC, FEE_RECIPIENT, ARBITER) → note the address
+   ```
+2. **Add env vars** to the Render service and set `TEST_MODE=false`:
+   ```
+   CHAIN_NAME=base-sepolia
+   RPC_URL=<your RPC>
+   USDC_ADDRESS=<testnet USDC>
+   ESCROW_ADDRESS=<deployed SwapEscrow>
+   FEE_RECIPIENT=<your fee wallet>
+   ARBITER_ADDRESS=<your dispute multisig>
+   ```
+3. **Add the watcher** as a second Render service → **Background Worker**, same
+   repo, start command `npm run watcher`. It syncs order state from chain events.
+4. **Add wallet connect** to the frontend `pay()` step (the buy modal) so the
+   buyer's wallet calls `approve()` + `fundEscrow()`/`settleInstant()`. The API
+   response already returns `escrow`, `token`, `seller`, `amount`, and
+   `onchain_order_id` for exactly this.
+5. Trial on testnet with fake USDC → then repeat on Base mainnet **after an
+   audit** of the contract.
+
+---
+
+## What works in TEST_MODE right now
+
+- Browse goods + services, filter, search — real data in Neon, shared across testers.
+- List a digital / physical / service item.
+- Buy digital → instant delivery (sealed payload unlocked).
+- Buy physical / hire service → funds "held in escrow" → advance the lifecycle
+  (ship → confirm, or start → submit → approve) → release. Dispute + arbiter
+  resolve included.
+- Waitlist on the landing page writes to the `waitlist` table.
+
+Each browser gets its own demo wallet (stored locally) so you can act as buyer
+and seller across two tabs/devices to test both sides.

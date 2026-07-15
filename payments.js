@@ -1,54 +1,158 @@
-// server/crypto.js — keep digital payloads sealed until payment is confirmed.
-// The listing row never contains the secret; it lives here, encrypted.
-import crypto from 'node:crypto';
+// server/listings.js — the structure for adding & browsing products
+import { Router } from 'express';
 import { q } from './config.js';
+import { sealSecret } from './crypto.js';       // encrypts digital payloads at rest
+import { requireAuth } from './auth.js';
 
-const KEY = crypto.createHash('sha256')
-  .update(process.env.ASSET_ENCRYPTION_KEY || 'dev-only-change-me')
-  .digest();                                   // 32-byte AES key
+export const listings = Router();
 
-function encrypt(plaintext) {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', KEY, iv);
-  const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, enc]).toString('base64');
-}
-function decrypt(b64) {
-  const buf = Buffer.from(b64, 'base64');
-  const iv = buf.subarray(0, 12), tag = buf.subarray(12, 28), enc = buf.subarray(28);
-  const d = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
-  d.setAuthTag(tag);
-  return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
-}
+const KINDS = new Set(['digital', 'physical', 'service']);
+const ASSET_TYPES = new Set(['key', 'link', 'text', 'file']);
+const isAddr = a => /^0x[a-fA-F0-9]{40}$/.test(a || '');
 
-// Called on listing creation. For key/link/text we encrypt the value; for files
-// you'd upload the encrypted blob to object storage and keep the storage_key.
-export async function sealSecret(asset) {
-  if (asset.asset_type === 'file') {
-    // asset.value is a storage_key you already uploaded (encrypted) to S3/R2.
-    return { storage_key: asset.value, ciphertext: null };
-  }
-  return { storage_key: null, ciphertext: encrypt(asset.value) };
-}
-
-// Called by the deliverable route ONLY after order.state === 'released'.
-export async function unsealForOrder(listingId) {
+// --- helper: upsert user by wallet, return id --------------------------------
+async function ensureUser(wallet, handle) {
   const { rows } = await q(
-    `SELECT asset_type, storage_key, secret_ciphertext, content_type
-       FROM digital_assets WHERE listing_id = $1`,
-    [listingId]
+    `INSERT INTO users (wallet, handle) VALUES ($1, $2)
+     ON CONFLICT (lower(wallet)) DO UPDATE SET handle = COALESCE(EXCLUDED.handle, users.handle)
+     RETURNING id`,
+    [wallet, handle || null]
   );
-  const a = rows[0];
-  if (!a) return null;
-  if (a.asset_type === 'file') {
-    // Issue a short-lived signed download URL from your object store here.
-    return { type: 'file', url: signedUrlFor(a.storage_key), content_type: a.content_type };
-  }
-  return { type: a.asset_type, value: decrypt(a.secret_ciphertext) };
+  return rows[0].id;
 }
 
-// Replace with your S3/R2 signed-URL implementation.
-function signedUrlFor(storageKey) {
-  return `https://cdn.worldswap.app/${storageKey}?sig=TODO`;
-}
+// --- CREATE a listing --------------------------------------------------------
+// POST /api/listings
+// body: { kind, category, title, description, price_usdc, delivery_days?,
+//         asset?: { asset_type, value } }   (asset only for digital)
+// The seller is ALWAYS the signed-in wallet — payouts must never be set by the body.
+listings.post('/', requireAuth, async (req, res) => {
+  try {
+    const b = { ...(req.body || {}), seller_wallet: req.wallet };
+    if (!KINDS.has(b.kind))                 return res.status(400).json({ error: 'invalid kind' });
+    if (!b.title || !b.description)         return res.status(400).json({ error: 'title and description required' });
+    if (!b.category)                        return res.status(400).json({ error: 'category required' });
+    if (!(Number(b.price_usdc) > 0))        return res.status(400).json({ error: 'price must be > 0' });
+    if (!isAddr(b.seller_wallet))           return res.status(400).json({ error: 'valid seller_wallet required' });
+
+    if (b.kind === 'digital') {
+      const a = b.asset || {};
+      if (!ASSET_TYPES.has(a.asset_type))   return res.status(400).json({ error: 'invalid asset_type' });
+      if (!a.value)                         return res.status(400).json({ error: 'digital payload required' });
+    } else if (!(Number(b.delivery_days) > 0)) {
+      return res.status(400).json({ error: 'delivery_days required for physical/service' });
+    }
+
+    // Identity comes from the signed-in profile, never from the request body.
+    const { rows: urows } = await q(`SELECT id, handle FROM users WHERE lower(wallet) = $1`, [req.wallet]);
+    const sellerId = urows[0]?.id || await ensureUser(req.wallet, null);
+    const handle   = urows[0]?.handle || null;
+
+    const { rows } = await q(
+      `INSERT INTO listings
+         (seller_id, seller_wallet, handle, kind, category, title, description, price_usdc, delivery_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id, kind, category, title, description, price_usdc, delivery_days, status, created_at`,
+      [sellerId, b.seller_wallet, handle, b.kind, b.category, b.title, b.description,
+       b.price_usdc, b.kind === 'digital' ? null : b.delivery_days]
+    );
+    const listing = rows[0];
+
+    // Seal the digital payload separately — it is NEVER part of the listing row.
+    if (b.kind === 'digital') {
+      const a = b.asset;
+      const { storage_key, ciphertext } = await sealSecret(a);   // encrypt or store-encrypted
+      await q(
+        `INSERT INTO digital_assets (listing_id, asset_type, storage_key, secret_ciphertext, content_type)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [listing.id, a.asset_type, storage_key || null, ciphertext || null, a.content_type || null]
+      );
+    }
+
+    res.status(201).json({ listing });
+  } catch (e) {
+    console.error('create listing', e);
+    res.status(500).json({ error: 'could not create listing' });
+  }
+});
+
+// --- BROWSE listings ---------------------------------------------------------
+// GET /api/listings?kind=&category=&q=&limit=&cursor=
+// Public read: digital payloads are never included.
+listings.get('/', async (req, res) => {
+  try {
+    const { kind, category, q: search } = req.query;
+    const limit = Math.min(Number(req.query.limit) || 24, 60);
+    const where = [`status = 'active'`];
+    const params = [];
+
+    if (kind === 'goods')        { where.push(`kind IN ('digital','physical')`); }
+    else if (kind === 'service') { params.push('service'); where.push(`kind = $${params.length}`); }
+    else if (KINDS.has(kind))    { params.push(kind); where.push(`kind = $${params.length}`); }
+
+    if (category) { params.push(category); where.push(`category = $${params.length}`); }
+    if (search)   { params.push(`%${search}%`); where.push(`(title ILIKE $${params.length} OR description ILIKE $${params.length})`); }
+    params.push(limit);
+
+    const { rows } = await q(
+      `SELECT id, seller_wallet, handle, kind, category, title, description, price_usdc,
+              delivery_days, created_at
+         FROM listings
+        WHERE ${where.join(' AND ')}
+        ORDER BY created_at DESC
+        LIMIT $${params.length}`,
+      params
+    );
+    res.json({ listings: rows });
+  } catch (e) {
+    console.error('browse', e);
+    res.status(500).json({ error: 'could not fetch listings' });
+  }
+});
+
+// --- SINGLE listing ----------------------------------------------------------
+listings.get('/:id', async (req, res) => {
+  const { rows } = await q(
+    `SELECT id, seller_wallet, handle, kind, category, title, description, price_usdc,
+            delivery_days, status, created_at
+       FROM listings WHERE id = $1`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'not found' });
+  res.json({ listing: rows[0] });
+});
+
+// --- UPDATE / unpublish (seller only) ---------------------------------------
+listings.patch('/:id', requireAuth, async (req, res) => {
+  const owner = await q(`SELECT seller_wallet FROM listings WHERE id = $1`, [req.params.id]);
+  if (!owner.rows[0]) return res.status(404).json({ error: 'not found' });
+  if (String(owner.rows[0].seller_wallet).toLowerCase() !== req.wallet)
+    return res.status(403).json({ error: 'not your listing' });
+
+  const allowed = ['title', 'description', 'price_usdc', 'category', 'delivery_days', 'status'];
+  const sets = [], params = [];
+  for (const k of allowed) if (k in (req.body || {})) { params.push(req.body[k]); sets.push(`${k} = $${params.length}`); }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+  params.push(req.params.id);
+  const { rows } = await q(
+    `UPDATE listings SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING id, status`,
+    params
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'not found' });
+  res.json({ listing: rows[0] });
+});
+
+// --- Waitlist ----------------------------------------------------------------
+// POST /api/waitlist  { email, source? }
+export const waitlist = Router();
+waitlist.post('/', async (req, res) => {
+  const email = (req.body?.email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'invalid email' });
+  await q(
+    `INSERT INTO waitlist (email, source) VALUES ($1, $2)
+     ON CONFLICT (lower(email)) DO NOTHING`,
+    [email, req.body?.source || 'landing']
+  );
+  const { rows } = await q(`SELECT count(*)::int AS n FROM waitlist`);
+  res.status(201).json({ ok: true, count: rows[0].n });
+});

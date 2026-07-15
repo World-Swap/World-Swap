@@ -1,31 +1,36 @@
-// server/config.js — central config from environment
-import pg from 'pg';
+// server/index.js — Express entry: serves the API and the frontend.
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { config } from './config.js';
+import { listings, waitlist } from './listings.js';
+import { payments } from './payments.js';
+import { auth } from './auth.js';
+import { profiles } from './profiles.js';
 
-export const config = {
-  port: process.env.PORT || 8080,
-  databaseUrl: process.env.DATABASE_URL,          // Neon connection string
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+app.set('trust proxy', 1);            // Render terminates TLS in front of us
+app.use(express.json({ limit: '4mb' }));
 
-  // TEST_MODE=true  -> settlement is mocked in the DB; no wallet/contract needed.
-  // TEST_MODE=false -> real on-chain USDC settlement via SwapEscrow + watcher.
-  testMode: String(process.env.TEST_MODE || 'true').toLowerCase() === 'true',
+// API
+app.use('/api/auth',     auth);
+app.use('/api/profile',  profiles);
+app.use('/api/listings', listings);
+app.use('/api/orders',   payments);
+app.use('/api/waitlist', waitlist);
+app.get('/api/config', (_req, res) => res.json({
+  test_mode: config.testMode,
+  chain: config.chain.name,
+  chain_id: 84532,
+  escrow: config.chain.escrow || null,
+  token: config.chain.usdc || null,
+}));
+app.get('/health', (_req, res) => res.json({ ok: true }));
 
-  chain: {
-    name: process.env.CHAIN_NAME || 'base-sepolia',
-    rpcUrl: process.env.RPC_URL,
-    usdc: process.env.USDC_ADDRESS,
-    escrow: process.env.ESCROW_ADDRESS,
-    feeRecipient: process.env.FEE_RECIPIENT,
-    arbiter: process.env.ARBITER_ADDRESS,
-    confirmations: Number(process.env.CONFIRMATIONS || 2),
-  },
+// Frontend (public/): landing at /, marketplace app at /app
+const pub = path.join(__dirname, '..', 'public');
+app.use(express.static(pub));
+app.get('/app', (_req, res) => res.sendFile(path.join(pub, 'app.html')));
 
-  feeBps: 50,                                      // 0.5%
-};
-
-export const pool = new pg.Pool({
-  connectionString: config.databaseUrl,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
-});
-
-export const q = (text, params) => pool.query(text, params);
+app.listen(config.port, () => console.log(`World Swap on :${config.port} (test_mode=${config.testMode})`));
