@@ -185,6 +185,9 @@
     <button class="m-btn primary" id="pSave">Save profile</button>
     <a class="contract-link" id="pView" href="#" target="_blank" style="margin-left:14px;display:none">view public profile ↗</a>
   </div>
+
+  <div class="head" style="margin-top:38px"><h1 style="font-size:26px">Your listings.</h1><p class="sub">Pause one to hide it from Browse without deleting it. Removing is permanent.</p></div>
+  <div id="myListings"></div>
 </div></div>
 
 <div class="overlay" id="overlay"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
@@ -456,6 +459,7 @@ async function doAct(id,act,el){
 document.addEventListener('click',e=>{
   const buy=e.target.closest('[data-buy]');if(buy)return openBuy(buy.dataset.buy);
   const open=e.target.closest('[data-open]');if(open)return openInstantAgain(open.dataset.open);
+  const la=e.target.closest('[data-lact]');if(la)return doListingAct(la.dataset.lid,la.dataset.lact);
   const a=e.target.closest('[data-act]');if(a){if(a.tagName==='A')e.preventDefault();return doAct(a.dataset.id,a.dataset.act,a);}
 });
 async function openInstantAgain(orderId){
@@ -514,6 +518,30 @@ async function renderProfile(){
       <div class="pstat"><b>${fmt(d.stats.volume)}</b><span>USDC volume</span></div>
       <div class="pstat"><b>${d.profile.rep_score}</b><span>reputation</span></div>`;
   }catch{}
+  renderMyListings();
+}
+async function renderMyListings(){
+  const el=$('#myListings');if(!el)return;
+  let d;try{d=await api('/api/listings/mine');}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return;}
+  if(!d.listings.length){el.innerHTML='<div class="empty">Nothing listed yet. Add one in <b>Sell / Offer</b>.</div>';return;}
+  el.innerHTML=d.listings.map(l=>`<div class="order"><div class="order-top">
+      <div><h3>${esc(l.title)}</h3>
+        <div class="om">${kindLabel[l.kind]} · ${esc(l.category)} · ${fmt(l.price_usdc)} USDC · ${l.orders} order${Number(l.orders)===1?'':'s'}, ${l.sold} sold</div></div>
+      <span class="state ${l.status==='active'?'funded':'created'}">${esc(l.status)}</span></div>
+    <div style="margin-top:8px">
+      ${l.status==='active'
+        ? `<button class="oa" data-lact="pause" data-lid="${l.id}">Pause</button>`
+        : `<button class="oa" data-lact="activate" data-lid="${l.id}">Activate</button>`}
+      <button class="oa warn" data-lact="remove" data-lid="${l.id}">Remove</button>
+    </div></div>`).join('');
+}
+async function doListingAct(id,act){
+  if(act==='remove'&&!confirm('Remove this listing permanently? Existing orders keep working.'))return;
+  const status=act==='pause'?'paused':act==='activate'?'active':'removed';
+  try{await api('/api/listings/'+id,{method:'PATCH',body:JSON.stringify({status})});
+    toast(act==='remove'?'Listing removed':act==='pause'?'Listing paused':'Listing live');
+    renderMyListings();renderBrowse();
+  }catch(e){toast(e.message);}
 }
 $('#pSave')?.addEventListener('click',async()=>{
   const err=$('#pErr');err.textContent='';

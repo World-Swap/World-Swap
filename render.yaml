@@ -14,6 +14,10 @@ services:
         generateValue: true  # Render generates a random secret
       - key: SESSION_SECRET
         generateValue: true  # signs sign-in cookies
+      - key: RESEND_API_KEY
+        sync: false          # optional: email alerts. Blank = inbox only.
+      - key: PUBLIC_URL
+        value: https://www.topworldmedia.world
 
 # When you go on-chain, add a worker:
 #  - type: worker

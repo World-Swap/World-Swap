@@ -111,6 +111,20 @@ listings.get('/', async (req, res) => {
 });
 
 // --- SINGLE listing ----------------------------------------------------------
+// --- MY listings (any status) ------------------------------------------------
+// Must be declared before '/:id', or Express treats "mine" as an id.
+listings.get('/mine', requireAuth, async (req, res) => {
+  const { rows } = await q(
+    `SELECT l.id, l.kind, l.category, l.title, l.description, l.price_usdc,
+            l.delivery_days, l.status, l.created_at,
+            (SELECT COUNT(*) FROM orders o WHERE o.listing_id = l.id)                        AS orders,
+            (SELECT COUNT(*) FROM orders o WHERE o.listing_id = l.id AND o.state = 'released') AS sold
+       FROM listings l
+      WHERE lower(l.seller_wallet) = $1 AND l.status <> 'removed'
+      ORDER BY l.created_at DESC LIMIT 100`, [req.wallet]);
+  res.json({ listings: rows });
+});
+
 listings.get('/:id', async (req, res) => {
   const { rows } = await q(
     `SELECT id, seller_wallet, handle, kind, category, title, description, price_usdc,
