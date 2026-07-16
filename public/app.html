@@ -387,7 +387,7 @@ async function ensureWallet(){
     throw new Error(`Your wallet is on ${short(addr)} but you're signed in as ${short(me)}. Switch accounts in your wallet, or sign out and back in.`);
   return signer;
 }
-const spin=msg=>`<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">${esc(msg)}</div></div>`;
+const spin=msg=>`<div style="text-align:center"><div class="spinner"></div><div style="color:var(--steel);font-size:14px">${esc(msg)}</div></div>`;
 
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800);}
 async function api(path,opts){const r=await fetch(API+path,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...opts});if(r.status===401){signedOut();throw new Error('Sign in to continue.');}if(!r.ok){let e='request failed';try{e=(await r.json()).error||e;}catch{}throw new Error(e);}return r.status===204?null:r.json();}
@@ -504,7 +504,7 @@ async function saveShipping(orderId,l){
 }
 async function pay(l){
   if(!TEST) return payOnchain(l);
-  const stage=$('#stage');stage.innerHTML='<div style="text-align:center"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Settling…</div></div>';
+  const stage=$('#stage');stage.innerHTML='<div style="text-align:center"><div class="spinner"></div><div style="color:var(--steel);font-size:14px">Settling…</div></div>';
   try{
     const ord=await api('/api/orders',{method:'POST',body:JSON.stringify({listing_id:l.id})});
     await saveShipping(ord.order_id,l);
@@ -537,7 +537,7 @@ async function payOnchain(l){
     const rc=await tx.wait();
     await api('/api/orders/'+ord.order_id+'/verify',{method:'POST',body:JSON.stringify({tx_hash:rc.hash})});
     if(l.kind==='digital'){ await showDelivery(ord.order_id,l); }
-    else{ stage.innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#ffffff" stroke-width="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" stroke="#ffffff" stroke-width="1.8"/></svg></div><h4>${fmt(l.price_usdc)} USDC in escrow</h4><p class="p">Locked in the contract on-chain. Release it from Orders once delivered.</p><a class="mono" style="font-size:11px;color:var(--muted-2)" href="https://sepolia.basescan.org/tx/${rc.hash}" target="_blank">view tx ↗</a><br><button class="m-btn primary" id="toO" style="margin-top:12px">Track in Orders</button></div>`;modal.querySelector('#toO').onclick=()=>{closeModal();switchView('orders');}; }
+    else{ stage.innerHTML=`<div class="delivered"><div class="check"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#ffffff" stroke-width="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" stroke="#ffffff" stroke-width="1.8"/></svg></div><h4>${fmt(l.price_usdc)} USDC in escrow</h4><p class="p">Locked in the contract on-chain. Release it from Orders once delivered.</p><a class="mono" style="font-size:11px;color:var(--steel)" href="https://sepolia.basescan.org/tx/${rc.hash}" target="_blank">view tx ↗</a><br><button class="m-btn primary" id="toO" style="margin-top:12px">Track in Orders</button></div>`;modal.querySelector('#toO').onclick=()=>{closeModal();switchView('orders');}; }
     refreshPip();
   }catch(e){stage.innerHTML=`<div style="color:var(--danger);text-align:center;padding:10px">${esc(txErr(e))}</div>`;}
 }
@@ -548,6 +548,30 @@ async function releaseOnchain(o){
   const tx=await swap.release(o.onchain_order_id);
   await tx.wait();
   await api('/api/orders/'+o.id+'/verify',{method:'POST',body:JSON.stringify({tx_hash:tx.hash})});
+  return tx.hash;
+}
+// A toast is gone by the time you come back from the wallet tab. This waits.
+function showReleased(o,txHash){
+  const net=(Number(o.amount_usdc)-Number(o.amount_usdc)*FEE);
+  // TODO(mainnet): the explorer host is hardcoded in 4 places here. Before any
+  // mainnet deploy, hoist it to one const driven by chain_id, or these all point
+  // at a testnet explorer while real money moves on Base.
+  const link=txHash?`<a class="txlink" href="https://sepolia.basescan.org/tx/${esc(txHash)}" target="_blank" rel="noopener">view release tx ↗</a>`:'';
+  overlay.classList.add('show');
+  modal.innerHTML=`<div class="modal-head"><div></div><button class="close">×</button></div>
+    <div class="delivered">
+      <div class="check done"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <h4>Released</h4>
+      <p class="p">${esc(o.title||'Order')} — the seller received <b>${fmt(net)} USDC</b>. The 0.5% fee was split off inside the same transaction. World Swap never held it.</p>
+      <div class="goods" style="text-align:left">
+        <div class="glabel">Settled on-chain</div>
+        <div class="secret">contract → seller&nbsp;&nbsp;${fmt(net)} USDC<br>contract → fee&nbsp;&nbsp;${fmt(Number(o.amount_usdc)*FEE)} USDC</div>
+        <div style="margin-top:8px">${link}</div>
+      </div>
+      <button class="m-btn ghost" id="dn">Done</button>
+    </div>`;
+  modal.querySelector('.close').onclick=closeModal;
+  const dn=modal.querySelector('#dn');if(dn)dn.onclick=closeModal;
 }
 async function showDelivery(orderId,l){
   let d=null;try{d=(await api(`/api/orders/${orderId}/deliverable`)).delivery;}catch(e){}
@@ -561,11 +585,11 @@ async function showDelivery(orderId,l){
 
 // ---- orders ----
 const FLOW={physical:[['funded','Funded'],['shipped','Shipped'],['released','Received']],service:[['funded','Funded'],['in_progress','In progress'],['submitted','Delivered'],['released','Approved']]};
-function waiting(t){return `<div class="om" style="margin-top:6px;color:var(--muted)">${t}</div>`;}
+function waiting(t){return `<div class="om" style="margin-top:6px;color:var(--steel)">${t}</div>`;}
 function row(b,o){b=b.slice();b.push(`<button class="oa warn" data-act="dispute" data-id="${o.id}">Dispute</button>`);return `<div style="margin-top:6px">${b.join('')}</div>`;}
 function actions(o,iAmSeller){
   if(o.state==='released')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:#7ee787">\u2713 Released \u2014 seller received ${fmt(o.amount_usdc-o.amount_usdc*FEE)} USDC</span></div>`;
-  if(o.state==='refunded')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:var(--muted)">\u21a9 Refunded to buyer</span></div>`;
+  if(o.state==='refunded')return `<div style="margin-top:6px"><span class="mono" style="font-size:12px;color:var(--steel)">\u21a9 Refunded to buyer</span></div>`;
   const iAmArbiter=!!CHAIN.arbiter&&me===CHAIN.arbiter;
   let b=[];
   if(o.state==='disputed'){
@@ -635,7 +659,7 @@ async function doAct(id,act,el){
     else if(act==='start'){await api('/api/orders/'+id+'/start',{method:'POST',body:JSON.stringify({})});}
     else if(act==='submit'){const d=prompt('Link/note for the deliverable:','https://drive.example/'+hex(5));await api('/api/orders/'+id+'/submit',{method:'POST',body:JSON.stringify({deliverable:d})});}
     else if(act==='changes'){await api('/api/orders/'+id+'/changes',{method:'POST',body:JSON.stringify({})});}
-    else if(act==='release'){ if(TEST){await api('/api/orders/'+id+'/release',{method:'POST',body:JSON.stringify({})});toast('Funds released');} else { const o=(await api('/api/orders')).orders.find(x=>x.id===id); await releaseOnchain(o); toast('Released on-chain'); } }
+    else if(act==='release'){ if(TEST){await api('/api/orders/'+id+'/release',{method:'POST',body:JSON.stringify({})});toast('Funds released');} else { const o=(await api('/api/orders')).orders.find(x=>x.id===id); const h=await releaseOnchain(o); renderOrders();refreshPip(); return showReleased(o,h); } }
     else if(act==='dispute'){if(!confirm('Open a dispute? Funds stay locked until resolved.'))return;await api('/api/orders/'+id+'/dispute',{method:'POST',body:JSON.stringify({opened_by:me})});}
     else if(act==='resolve'){await api('/api/orders/'+id+'/resolve',{method:'POST',body:JSON.stringify({release_to_seller:el.dataset.to==='1'})});}
     renderOrders();refreshPip();
@@ -664,7 +688,7 @@ async function showDeliveryInline(d){
 let sellKind='digital';
 function catsFor(k){const arr=k==='service'?CATS.service:CATS.goods;$('#cat').innerHTML=arr.map(c=>`<option>${esc(c)}</option>`).join('');if(k==='digital')$('#cat').value='Digital';}
 function syncSell(){$('#digWrap').style.display=sellKind==='digital'?'block':'none';$('#daysWrap').style.display=sellKind==='digital'?'none':'block';catsFor(sellKind);
-  const s=$('#sellAs');if(s)s.innerHTML=me?`${PROFILE&&PROFILE.handle?'@'+esc(PROFILE.handle):'no handle yet'} · ${esc(short(me))} <span style="color:var(--muted-2)">— gets 99.5%</span>`:'Sign in to list an item — payouts go to the wallet you sign in with.';}
+  const s=$('#sellAs');if(s)s.innerHTML=me?`${PROFILE&&PROFILE.handle?'@'+esc(PROFILE.handle):'no handle yet'} · ${esc(short(me))} <span style="color:var(--steel)">— gets 99.5%</span>`:'Sign in to list an item — payouts go to the wallet you sign in with.';}
 $('#kindSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;sellKind=b.dataset.kind;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));syncSell();});
 function updSplit(){const p=parseFloat($('#price').value)||0,f=p*FEE;$('#spPay').textContent=fmt(p);$('#spFee').textContent=fmt(f);$('#spNet').textContent=fmt(p-f);}
 $('#price').addEventListener('input',updSplit);
@@ -752,7 +776,7 @@ async function showProfile(id){
         <div class="pstat"><b>${fmt(d.stats.volume)}</b><span>USDC volume</span></div>
         <div class="pstat"><b>${p.created_at?new Date(p.created_at).getFullYear():'—'}</b><span>member since</span></div>
       </div>
-      ${p.unclaimed?`<p class="p" style="color:var(--muted-2);font-size:12px;margin-top:10px">This wallet hasn't set up a profile yet.</p>`:''}
+      ${p.unclaimed?`<p class="p" style="color:var(--steel);font-size:12px;margin-top:10px">This wallet hasn't set up a profile yet.</p>`:''}
       ${d.listings.length?`<div style="margin-top:6px"><div class="lbl" style="margin-bottom:8px">Active listings</div>${
         d.listings.map(l=>`<div class="crow"><span class="k">${esc(l.title)}</span><span class="v">${fmt(l.price_usdc)} USDC</span></div>`).join('')}</div>`:''}`);
   }catch(e){body(`<div style="color:var(--danger)">${esc(e.message)}</div>`);}

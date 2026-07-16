@@ -25,6 +25,13 @@ contract SwapEscrow is ReentrancyGuard {
     address public arbiter;                 // dispute resolver (multisig)
     uint16  public constant FEE_BPS = 50;   // 0.5%
 
+    /// @notice How long a funded order waits before the seller may claim it.
+    ///         Read ONLY at funding time and frozen onto the order, so changing
+    ///         it can never retroactively shorten protection a buyer already has.
+    uint64 public autoReleaseDelay = 30 days;
+    uint64 public constant MIN_DELAY = 7 days;
+    uint64 public constant MAX_DELAY = 180 days;
+
     enum State { None, Funded, Released, Refunded, Disputed }
 
     struct Order {
@@ -32,15 +39,18 @@ contract SwapEscrow is ReentrancyGuard {
         address seller;
         uint256 amount;
         State   state;
+        uint64  releaseDeadline;  // after this, anyone may settle it to the seller
     }
 
     mapping(bytes32 => Order) public orders;   // onchainOrderId => Order
 
-    event Funded(bytes32 indexed orderId, address indexed buyer, address indexed seller, uint256 amount);
+    event Funded(bytes32 indexed orderId, address indexed buyer, address indexed seller, uint256 amount, uint64 releaseDeadline);
     event Released(bytes32 indexed orderId, uint256 toSeller, uint256 fee);
+    event AutoReleased(bytes32 indexed orderId, address caller);
     event Refunded(bytes32 indexed orderId, uint256 amount);
     event Disputed(bytes32 indexed orderId, address by);
     event ArbiterChanged(address arbiter);
+    event AutoReleaseDelayChanged(uint64 delay);
 
     modifier onlyArbiter() { require(msg.sender == arbiter, "not arbiter"); _; }
 
@@ -55,9 +65,13 @@ contract SwapEscrow is ReentrancyGuard {
     function fundEscrow(bytes32 orderId, address seller, uint256 amount) external nonReentrant {
         require(orders[orderId].state == State.None, "order exists");
         require(seller != address(0) && amount > 0, "bad params");
-        orders[orderId] = Order({ buyer: msg.sender, seller: seller, amount: amount, state: State.Funded });
+        uint64 deadline = uint64(block.timestamp) + autoReleaseDelay;
+        orders[orderId] = Order({
+            buyer: msg.sender, seller: seller, amount: amount,
+            state: State.Funded, releaseDeadline: deadline
+        });
         token.safeTransferFrom(msg.sender, address(this), amount);
-        emit Funded(orderId, msg.sender, seller, amount);
+        emit Funded(orderId, msg.sender, seller, amount, deadline);
     }
 
     /// @notice Buyer releases funds after receiving the goods/work.
@@ -73,11 +87,40 @@ contract SwapEscrow is ReentrancyGuard {
     function settleInstant(bytes32 orderId, address seller, uint256 amount) external nonReentrant {
         require(orders[orderId].state == State.None, "order exists");
         require(seller != address(0) && amount > 0, "bad params");
-        Order memory o = Order({ buyer: msg.sender, seller: seller, amount: amount, state: State.Funded });
+        // No hold, so no deadline: this order is Released before the tx ends.
+        Order memory o = Order({
+            buyer: msg.sender, seller: seller, amount: amount,
+            state: State.Funded, releaseDeadline: 0
+        });
         orders[orderId] = o;
         token.safeTransferFrom(msg.sender, address(this), amount);
-        emit Funded(orderId, msg.sender, seller, amount);
+        emit Funded(orderId, msg.sender, seller, amount, 0);
         _settle(orderId, orders[orderId]);
+    }
+
+    /// @notice After the deadline, a funded order settles to the seller.
+    /// @dev    THE POINT: without this, a seller who delivers and is then ignored
+    ///         can never be paid — the money sits in the contract forever. The
+    ///         clock is the authority, not the caller, so this is deliberately
+    ///         callable by ANYONE: funds can only ever go to the seller recorded
+    ///         at funding, so no caller (World Swap included) gains any control.
+    ///         A dispute moves the order out of Funded and blocks this entirely,
+    ///         which is the buyer's remedy if the goods never showed up.
+    function claimExpired(bytes32 orderId) external nonReentrant {
+        Order storage o = orders[orderId];
+        require(o.state == State.Funded, "not funded");
+        require(o.releaseDeadline != 0, "no deadline");
+        require(block.timestamp >= o.releaseDeadline, "too early");
+        emit AutoReleased(orderId, msg.sender);
+        _settle(orderId, o);
+    }
+
+    /// @notice Seconds until `orderId` can be claimed. 0 means claimable now.
+    function timeUntilClaimable(bytes32 orderId) external view returns (uint256) {
+        Order storage o = orders[orderId];
+        if (o.state != State.Funded || o.releaseDeadline == 0) return 0;
+        if (block.timestamp >= o.releaseDeadline) return 0;
+        return o.releaseDeadline - block.timestamp;
     }
 
     /// @notice Either party flags a dispute; funds freeze until the arbiter rules.
@@ -107,6 +150,16 @@ contract SwapEscrow is ReentrancyGuard {
         require(_arbiter != address(0), "zero addr");
         arbiter = _arbiter;
         emit ArbiterChanged(_arbiter);
+    }
+
+    /// @notice Change the hold window for FUTURE orders only.
+    /// @dev    Bounded on purpose. If this could be set to 0, whoever holds the
+    ///         arbiter key could instantly sweep every new escrow to its seller.
+    ///         Existing orders are untouched: their deadline was frozen at funding.
+    function setAutoReleaseDelay(uint64 _delay) external onlyArbiter {
+        require(_delay >= MIN_DELAY && _delay <= MAX_DELAY, "out of bounds");
+        autoReleaseDelay = _delay;
+        emit AutoReleaseDelayChanged(_delay);
     }
 
     // --- internal: split 99.5% seller / 0.5% fee, atomically ------------------
