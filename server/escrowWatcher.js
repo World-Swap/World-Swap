@@ -4,7 +4,11 @@ import { JsonRpcProvider, Contract } from 'ethers';
 import { q, config } from './config.js';
 
 const ABI = [
-  'event Funded(bytes32 indexed orderId, address indexed buyer, address indexed seller, uint256 amount)',
+  // These signatures MUST match SwapEscrow.sol byte for byte. A changed
+  // signature is a changed topic hash, and the listener just silently never
+  // fires again — no error, no log, the DB simply stops tracking reality.
+  'event Funded(bytes32 indexed orderId, address indexed buyer, address indexed seller, uint256 amount, uint64 deliverBy)',
+  'event Delivered(bytes32 indexed orderId, uint64 claimAfter)',
   'event Released(bytes32 indexed orderId, uint256 toSeller, uint256 fee)',
   'event Refunded(bytes32 indexed orderId, uint256 amount)',
   'event Disputed(bytes32 indexed orderId, address by)',
@@ -22,6 +26,18 @@ async function setStateByOnchainId(onchainId, state, patch = {}) {
 escrow.on('Funded', async (orderId) => {
   await setStateByOnchainId(orderId, 'funded', { funded_at: new Date() });
   console.log('funded', orderId);
+});
+
+escrow.on('Delivered', async (orderId) => {
+  // The seller staked their delivery claim on-chain. The app normally writes
+  // this itself right after the tx, but if that write failed the chain still
+  // moved — this heals the DB. Only advance from 'funded' so we never drag an
+  // order backwards from a later state.
+  await q(
+    `UPDATE orders
+        SET state = CASE WHEN kind = 'service' THEN 'submitted' ELSE 'shipped' END
+      WHERE onchain_order_id = $1 AND state = 'funded'`, [orderId]);
+  console.log('delivered', orderId);
 });
 
 escrow.on('Released', async (orderId, toSeller, fee, ev) => {

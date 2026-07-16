@@ -26,6 +26,10 @@ app.get('/api/config', (_req, res) => res.json({
   escrow: config.chain.escrow || null,
   token: config.chain.usdc || null,
   arbiter: config.chain.arbiter || null,
+  // Public chain data only. publicRpc is deliberately NOT config.chain.rpcUrl —
+  // that one may carry a provider key and must stay server-side.
+  rpc: config.chain.publicRpc,
+  explorer: config.chain.explorer,
 }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

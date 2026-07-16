@@ -12,8 +12,12 @@ const isAddr = a => /^0x[a-fA-F0-9]{40}$/.test(a || '');
 const feeOf  = amt => (Number(amt) * config.feeBps / 10_000);
 const short  = a => a && a.length > 12 ? a.slice(0, 6) + '…' + a.slice(-4) : a;
 
-const SWAP_READ_ABI = ['function orders(bytes32) view returns (address buyer,address seller,uint256 amount,uint8 state)'];
-// contract State enum: 0 None, 1 Funded, 2 Released, 3 Refunded, 4 Disputed
+const SWAP_READ_ABI = ['function orders(bytes32) view returns (address buyer,address seller,uint256 amount,uint8 state,uint64 deliverBy,uint64 inspectSecs,uint64 claimAfter)'];
+// SwapEscrow.State — MUST mirror the enum in contracts/SwapEscrow.sol exactly.
+// These were bare numbers before, and inserting Delivered at index 2 silently
+// turned "Delivered" into "Released" — the app would have reported a seller paid
+// while the money was still in escrow. Never compare raw indices again.
+const ST = { NONE: 0, FUNDED: 1, DELIVERED: 2, RELEASED: 3, REFUNDED: 4, DISPUTED: 5 };
 
 async function getOrder(id) {
   const { rows } = await q(`SELECT * FROM orders WHERE id = $1`, [id]);
@@ -103,10 +107,14 @@ payments.post('/:id/verify', requireAuth, async (req, res) => {
     const oc = await swap.orders(o.onchain_order_id);
     const st = Number(oc.state);
     let to = null, patch = {};
-    if (st === 2)       { to = 'released'; patch.released_at = new Date(); if (req.body?.tx_hash) patch.tx_release = req.body.tx_hash; }
-    else if (st === 3)  { to = 'refunded'; }
-    else if (st === 4)  { to = 'disputed'; }
-    else if (st === 1 && o.state === 'created') { to = 'funded'; patch.funded_at = new Date(); if (req.body?.tx_hash) patch.tx_fund = req.body.tx_hash; }
+    if (st === ST.RELEASED)      { to = 'released'; patch.released_at = new Date(); if (req.body?.tx_hash) patch.tx_release = req.body.tx_hash; }
+    else if (st === ST.REFUNDED) { to = 'refunded'; }
+    else if (st === ST.DISPUTED) { to = 'disputed'; }
+    // Delivered on-chain means the seller staked their claim. Only advance a
+    // physical order that the app still thinks is unshipped; never downgrade
+    // one that is already further along (shipped/in_progress/submitted).
+    else if (st === ST.DELIVERED && o.state === 'funded') { to = o.kind === 'service' ? 'submitted' : 'shipped'; }
+    else if (st === ST.FUNDED && o.state === 'created') { to = 'funded'; patch.funded_at = new Date(); if (req.body?.tx_hash) patch.tx_fund = req.body.tx_hash; }
     if (to) {
       const cols = ['state = $2'], params = [o.id, to];
       for (const [k, v] of Object.entries(patch)) { params.push(v); cols.push(`${k} = $${params.length}`); }

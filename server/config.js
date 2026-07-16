@@ -16,6 +16,11 @@ export const config = {
     escrow: process.env.ESCROW_ADDRESS,
     feeRecipient: process.env.FEE_RECIPIENT,
     arbiter: process.env.ARBITER_ADDRESS,
+    explorer: process.env.EXPLORER_URL || 'https://sepolia.basescan.org',
+    // Sent to every browser, so this must NEVER be the private RPC. If RPC_URL
+    // is ever an Alchemy/Infura URL it has a key in it — publishing that would
+    // hand out your quota. Keep this a public endpoint, always.
+    publicRpc: process.env.PUBLIC_RPC_URL || 'https://sepolia.base.org',
     confirmations: Number(process.env.CONFIRMATIONS || 2),
   },
 
